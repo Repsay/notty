@@ -151,6 +151,7 @@ def reminder_payload(action: str, data: JsonObject) -> JsonObject:
         raise NottyApiError(msg)
     return {"action": operation, "cycle_time": cycle}
 
+
 DND_READ_TIME_ZONE = "Asia/Shanghai"
 DND_TIME_FIELDS = ("dnd_begin_time", "dnd_end_time")
 
