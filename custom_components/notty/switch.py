@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from custom_components.notty.api import NottyApiError, dnd_payload
-from custom_components.notty.binary_sensor import TRUE_VALUES
+from custom_components.notty.api import REMINDER_CYCLE_FIELDS, NottyApiError, dnd_payload, reminder_payload
+from custom_components.notty.binary_sensor import BOOLEAN_VALUES, TRUE_VALUES
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.entity import NottyEntity, merged_device_data, value_from_block
 from custom_components.notty.models import DeviceData, NottyConfigEntry
@@ -29,6 +30,24 @@ class NottySwitchDescription(SwitchEntityDescription):
 SWITCHES = (
     NottySwitchDescription(key="switch_key", name="Child Lock", action="set_key", field="switch"),
     NottySwitchDescription(key="switch_dnd", name="Do Not Disturb", action="set_dnd", field="switch"),
+    NottySwitchDescription(
+        key="open_litter_remind",
+        name="Litter renewal reminder",
+        action="set_litter_remind",
+        field="action",
+        on_value=1,
+        off_value=2,
+        entity_category=EntityCategory.CONFIG,
+    ),
+    NottySwitchDescription(
+        key="open_garbagebag_remind",
+        name="Trash bag reminder",
+        action="set_garbage_bag_remind",
+        field="action",
+        on_value=1,
+        off_value=2,
+        entity_category=EntityCategory.CONFIG,
+    ),
 )
 
 
@@ -63,13 +82,18 @@ class NottySwitch(NottyEntity, SwitchEntity):
         self._attr_unique_id = f"{device_id}_setting_{description.key}"
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Is on.
 
         Returns:
             bool: The resulting is on.
         """
-        return value_from_block(self.block, self.entity_description.key) in TRUE_VALUES
+        raw = value_from_block(self.block, self.entity_description.key)
+        if self.entity_description.action in REMINDER_CYCLE_FIELDS and (
+            not isinstance(raw, (bool, int, str)) or raw not in BOOLEAN_VALUES
+        ):
+            return None
+        return raw in TRUE_VALUES
 
     @property
     def extra_state_attributes(self) -> DeviceData | None:
@@ -96,6 +120,18 @@ class NottySwitch(NottyEntity, SwitchEntity):
                 data = dnd_payload(
                     merged_device_data(self.block), time_zone=self.coordinator.hass.config.time_zone, switch_dnd=value
                 )
+            except NottyApiError as exc:
+                raise HomeAssistantError(str(exc)) from exc
+        if self.entity_description.action in REMINDER_CYCLE_FIELDS:
+            if self.is_on is None:
+                msg = "Cannot change a reminder with unknown current state"
+                raise HomeAssistantError(msg)
+            if self.is_on == enabled:
+                return
+            cycle_field = REMINDER_CYCLE_FIELDS[self.entity_description.action]
+            data["cycle_time"] = value_from_block(self.block, cycle_field)
+            try:
+                data = reminder_payload(self.entity_description.action, data)
             except NottyApiError as exc:
                 raise HomeAssistantError(str(exc)) from exc
         await self.coordinator.api.litter_action(self.device_id, self.entity_description.action, data)

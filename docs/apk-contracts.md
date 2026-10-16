@@ -10,6 +10,8 @@ output remain local and ignored. Tests use synthetic data.
 | Child lock | `switch_key` | `/device/litter_box/set_key`: `switch`, `user_device_id` |
 | Do Not Disturb | `switch_dnd`, `led`, `dnd_begin_time`, `dnd_end_time` | `/device/litter_box/set_dnd`: `switch`, `led`, `dnd_begin_time`, `dnd_end_time`, `user_device_id` |
 | Automatic cleaning delay | `auto_delay`, `mode` | `/device/litter_box/set_auto_delay`: `delay` (integer minutes), `user_device_id` |
+| Litter renewal reminder | `open_litter_remind`, `default_remaining_days`, `remaining_days` | `/device/litter_box/set_litter_remind`: `action` (1 enable, 2 disable) and required `cycle_time`; `user_device_id` |
+| Trash bag reminder | `open_garbagebag_remind`, `garbage_bag_cycle_time`, `garbage_bag_remaining_days` | `/device/litter_box/set_garbage_bag_remind`: `action` (1 enable, 2 disable) and required `cycle_time`; `user_device_id` |
 
 The client currently adds a `device_id` alias alongside `user_device_id` for
 device actions. That is existing compatibility behavior, not a field established
@@ -87,11 +89,66 @@ them to writable choices. Its ID is `{physical_device_id}_setting_auto_delay`.
 The generic action service does not expose this endpoint yet; the select applies
 the mode restriction. API validation also rejects noninteger/out-of-range delays.
 
+## Reminder switches and resets (#18)
+
+The decoded `SettingController::setByProduct` branches select
+`/device/litter_box/set_litter_remind` at `0xccac2c`, reading
+`open_litter_remind` at `0xccac60`; for trash bags they select
+`/device/litter_box/set_garbage_bag_remind` at `0xccad00`, reading
+`open_garbagebag_remind` at `0xccad34`. The client also adds the
+pre-existing `device_id` alias to `user_device_id`, which is not
+independently established by the decoded APK paths.
+
+**Live owner validation on physical device 52963 (2026-10-16):**
+
+- `action=1`, with `cycle_time`: accepted for both reminder endpoints;
+  `open_litter_remind` / `open_garbagebag_remind` changed to true,
+  configured cycles stayed at 30 / 8 days respectively, and the remaining
+  days changed from 0 to those configured values.
+- `action=2`, with `cycle_time`: accepted for both endpoints, but
+  **disabled** the reminders, leaving configured cycles unchanged; the
+  remaining-days counters were 0. This is not a reset operation.
+- `action=3`, without `cycle_time`: rejected on both endpoints with
+  server messages requiring valid configured days (5–30 for litter, 2–15
+  for trash bag).
+- `action=3`, **with** `cycle_time=30`: accepted on the **litter**
+  endpoint while already at a 30-day countdown. All values remained 30;
+  this did not demonstrate a reset.
+- `action=3`, **with** `cycle_time=29`: accepted on the **litter**
+  endpoint while the reminder was enabled. Three consecutive readbacks
+  confirmed `open_litter_remind=true`, `default_remaining_days=29`,
+  and `remaining_days=29` (all were 30 before the request).
+  This establishes that action 3 changes the configured litter interval
+  **and** sets the remaining countdown to that interval. It does *not*
+  separately prove a same-cycle reset. Action 3 remains **untested for
+  trash bags**.
+
+The safe configuration switches now use `action=1` to enable and
+`action=2` to disable, **always** validating and sending the current
+configured `cycle_time`. Unknown enable states, invalid cycles and
+no-op switches never send a write. This preserves the configured cycle
+but does not preserve the *remaining countdown* when enabling; on the
+tested device, enabling restarted the countdown.
+
+The **litter renewal interval selector** and matching generic
+`set_litter_reminder_days` service now use the verified `action=3`
+with a supplied, validated `cycle_time` in the 5–30 day range. Only
+**enabled** reminders with a valid configured interval can be edited.
+Selecting the existing interval does not write, since the effect of an
+unchanged-cycle action 3 on a partially elapsed countdown is unverified.
+
+`reset_litter_reminder`, `reset_garbage_bag_reminder`, and
+`set_garbage_bag_reminder_days` remain **blocked at the API
+boundary**, including their HA reset buttons, the trash-bag interval
+selector and generic service. The original `action=2` assumption
+disabled reminders, and bag action 3 has not been tested live.
+
+
 ## Verification boundary
 
 Automated checks establish request construction, Home Assistant service behavior,
 state preservation, bounds and refresh behavior. They do not establish server
-acceptance or physical behavior. Issues #11, #12 and #16 remain open pending
+acceptance or physical behavior. Issues #11, #12, #16 and #18 remain open pending
 owner-observed live validation. No device commands are sent by this test suite.
 
 ## Email verification authentication (#13, #14)

@@ -20,7 +20,7 @@ litter_box_one_key:
 
 litter_box_action:
   name: Litter box action
-  description: Call a verified NOTTY litter box action or setting endpoint with app-compatible data. Reminder day actions use data.cycle_time.
+  description: Call a NOTTY litter box action or setting. The litter reminder interval action (set_litter_reminder_days) is available only for an enabled reminder and a changed valid cycle (5–30 days). Reset and trash-bag interval actions remain disabled.
   fields:
     user_device_id:
       name: User device ID

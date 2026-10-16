@@ -33,6 +33,14 @@
       "auto_delay": {
         "name": "Automatische reinigingsvertraging"
       }
+    },
+    "switch": {
+      "open_litter_remind": {
+        "name": "Herinnering kattenbakvulling vervangen"
+      },
+      "open_garbagebag_remind": {
+        "name": "Herinnering afvalzak vervangen"
+      }
     }
   }
 }
