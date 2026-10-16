@@ -99,7 +99,10 @@ def _register_services(hass: HomeAssistant) -> None:
             action_data = {}
         # Keep the existing reset service convenient without guessing an interval:
         # read it from this physical device if the caller did not provide one.
-        if action in {"reset_litter_reminder", "reset_garbage_bag_reminder"} and REMINDER_CYCLE_FIELD not in action_data:
+        if (
+            action in {"reset_litter_reminder", "reset_garbage_bag_reminder"}
+            and REMINDER_CYCLE_FIELD not in action_data
+        ):
             action_data = {
                 **action_data,
                 REMINDER_CYCLE_FIELD: value_from_block(coordinator.data[user_device_id], REMINDER_CYCLE_FIELDS[action]),
