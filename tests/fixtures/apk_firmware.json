@@ -1,0 +1,11 @@
+{
+  "apk_version": "1.1.30",
+  "sha256": "3b6dc21037f2802e92233ecd9f685e76b03a79afa2d82dd52a5dfcd689a18e6a",
+  "read_endpoint": "/device/check_upgrade/synthetic-box",
+  "read_address": "0xbecde0",
+  "view_fields": {"src_version": "0xcd9170", "dest_version": "0xcd93a8", "firmware_desc": "0xcd962c"},
+  "offered": {"src_version": "1.0.0", "dest_version": "1.1.0", "firmware_desc": "Synthetic firmware notes", "task_status": "QUEUED", "task_id": "synthetic-task"},
+  "current": {"src_version": "1.1.0", "dest_version": "", "firmware_desc": "", "task_status": "SUCCEEDED"},
+  "confirmation": {"path": "/device/confirm_upgrade", "payload": {"task_id": "synthetic-task", "user_device_id": 123}, "task_field_address": "0xcc52f0", "device_field_address": "0xcc5314"},
+  "event_terminal_statuses": {"SUCCEEDED": "0xbec644", "FAILED": "0xbec6bc", "CANCELED": "0xbec72c"}
+}

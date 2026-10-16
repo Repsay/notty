@@ -41,6 +41,11 @@
       "open_garbagebag_remind": {
         "name": "Herinnering afvalzak vervangen"
       }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
+      }
     }
   },
   "services": {
