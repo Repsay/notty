@@ -35,6 +35,7 @@ Only fields returned by the account/device are exposed. The coordinator polls ev
 | Binary sensors | Connectivity, locks and reported boolean settings |
 | Buttons | Clean, level, empty, reminder resets, weight reset and calibration |
 | Switches | Child lock, Do Not Disturb, litter-renewal reminder and trash-bag reminder |
+| Actions | List and manage fixed-clock cleaning plans with explicit plan IDs |
 | Selects | Cleaning mode, automatic cleaning delay, known screen languages and reminder intervals |
 | Time | Do Not Disturb start/end |
 | Number | Pet weight, with existing litter-box binding preserved |
@@ -151,3 +152,47 @@ See [development history](docs/development-history.md) and the [live validation 
 ## License
 
 MIT. NOTTY names and trademarks belong to their respective owners.
+
+## Cleaning plans
+
+Use **Developer tools → Actions → NOTTY: Litter box cleaning schedules**
+(`notty.litter_box_schedule`). Start with `operation: list` and request its response
+to obtain current plan IDs, times, enable states and quantities. It reads only the
+selected physical litter box. The action supports responses and also works in
+scripts without requesting a response.
+
+```yaml
+action: notty.litter_box_schedule
+data:
+  user_device_id: "your-physical-box-id"
+  operation: list
+response_variable: notty_schedule
+```
+
+| Operation | Additional fields | Effect |
+| --- | --- | --- |
+| `list` | None | Return fresh plans and their IDs |
+| `create` | `time: "06:30"` | Add one plan, up to ten total |
+| `update` | `plan_id`, `time: "06:30"` | Change the selected plan's clock time |
+| `enable` / `disable` | `plan_id` | Change only the selected plan's enable state |
+| `delete` | `plan_id` | Delete exactly the selected plan |
+
+Creating or enabling plans may schedule automatic cleaning. These actions leave
+cleaning mode unchanged. The app describes Scheduled mode as cleaning at configured
+fixed times; behavior outside that mode and with an empty plan list remains
+unverified. Create does not send an enable state, matching the app; inspect readback
+to see the server's resulting state. Update preserves a disabled plan by omitting
+its enable field. Unknown plan quantity/recurrence types block time edits.
+
+**Times are raw NOTTY schedule-clock values in `HH:MM`, not Home Assistant local
+times or UTC timestamps.** Readback returns `clock_basis: notty_schedule_clock`
+and the separately reported device timezone for context. No timezone conversion
+or DND conversion is applied. The backend's schedule timezone/DST and recurrence
+behavior still need owner-observed validation; do not assume that DND readback
+rules apply to plans. Date, weekday and custom recurrence fields are unsupported.
+
+Writes first fetch the selected box's plan list to verify membership and plan
+count. Missing IDs, IDs from another box, malformed list responses and extra fields
+are rejected. Successful writes refresh the coordinator and return fresh readback
+when a response is requested. No schedule actions run automatically during setup,
+polling or read-only probes. See [APK schedule evidence](docs/apk-schedules.md).

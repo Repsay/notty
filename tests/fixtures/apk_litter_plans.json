@@ -1,0 +1,11 @@
+{
+  "apk_version": "1.1.30",
+  "sha256": "3b6dc21037f2802e92233ecd9f685e76b03a79afa2d82dd52a5dfcd689a18e6a",
+  "read": {"method": "GET", "path": "/device/litter_box/plans/synthetic-box", "address": "0xc0d740"},
+  "requests": [
+    {"action": "add_plan", "input": {"time": "06:30"}, "payload": {"time": "06:30", "quantity": 1, "user_device_id": "synthetic-box"}, "fields": ["0xcc1050", "0xcc1074", "0xcc11d0"], "post": "0xcc11f8"},
+    {"action": "edit_plan", "input": {"time": "23:59", "plan_id": "81"}, "payload": {"time": "23:59", "quantity": 1, "plan_id": 81}, "fields": ["0xcc1050", "0xcc1074", "0xcc1154"], "post": "0xcc11f8"},
+    {"action": "open_plan", "input": {"plan_id": "81", "open": true}, "payload": {"plan_id": 81, "open": true}, "fields": ["0xcd7ce4", "0xcd7d08"], "post": "0xcd7d28"},
+    {"action": "delete_plan", "input": {"plan_id": "81"}, "payload": {"plan_id": 81}, "fields": ["0xcd7888"], "post": "0xcd78b0"}
+  ]
+}
