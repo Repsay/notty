@@ -100,9 +100,6 @@ def action_payload(action: str, requested: int, info: JsonObject, *, time_zone: 
         ValidationError: When the requested operation cannot be completed.
     """
     if action == DND_ACTION:
-        if not time_zone:
-            msg = "DND writes require --time-zone matching the NOTTY app's local schedule"
-            raise ValidationError(msg)
         try:
             return load_api.dnd_payload(info, time_zone=time_zone, switch_dnd=requested)
         except load_api.NottyApiError as exc:
@@ -291,7 +288,7 @@ def main() -> int:
     parser.add_argument("action", choices=("status", "child-lock", "dnd"), nargs="?", default="status")
     parser.add_argument("--state", choices=("on", "off"))
     parser.add_argument(
-        "--time-zone", help="IANA timezone shown by the NOTTY app (required for DND writes)"
+        "--time-zone", help="Fallback IANA timezone only when device does not report time_zone_iana"
     )
     parser.add_argument(
         "--execute", action="store_true", help="Allow one real settings write after a typed confirmation"
