@@ -22,9 +22,13 @@ Start with read-only captures. This checklist is for the device owner; the autom
    distinct Home Assistant and NOTTY API clock-source assumptions.
    Add `--device-id 52963` to the read-only probe to compare only
    timezone fields from the account's device listing and litter-box info.
-   This is needed to determine whether a Windows catalog ID is stored
-   separately from the IANA device field. No
-   `change_time_zone` write is enabled without independent validation.
+   The owner's 2026-10-16 readback confirmed
+   `time_zone_iana: Europe/Amsterdam` in **both** responses; the
+   catalog uses `W. Europe Standard Time`. The device's current
+   zone therefore needs no Windows-to-IANA conversion for runtime
+   DND reads/writes. The timezone **setter payload** remains unknown,
+   so no `change_time_zone` write is enabled without verifying it
+   separately against the app contract.
 7. Only after read behavior is confirmed, verify each command individually using normal device precautions. Record the action, request field/code, resulting physical behavior, and reported state. Do not run a command sweep.
    - For issue #18, action 1 (with configured cycle) has been live-verified to enable/restart a countdown, and action 2 (with configured cycle) disables both reminder types. Action 3 without cycle is rejected. Action 3 with a changed cycle (30 → 29 days) is accepted for **litter renewal** and updated both the configured cycle and remaining days. Do **not** use action 2 to reset a reminder. Keep reset buttons and **trash-bag interval adjustment** disabled until their contracts are tested separately, one explicitly confirmed request at a time, with before/after enabled state, configured days, remaining days, and app verification. Do not send a command sweep.
 8. Check pet-weight updates preserve the existing litter-box association. This path has regression tests but still needs production validation.
