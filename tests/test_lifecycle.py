@@ -74,7 +74,7 @@ async def test_setup_entities_services_and_unload(hass: HomeAssistant, runtime_a
     await hass.services.async_call(
         "notty", "litter_box_one_key", {"user_device_id": "box-1", "one_key": "clean"}, blocking=True
     )
-    runtime_api.command.assert_awaited_once_with("box-1", 0, "litter_box")
+    runtime_api.command.assert_awaited_once_with("box-1", 1, "litter_box")
     await hass.config_entries.async_unload(entry.entry_id)
     assert not hass.services.has_service("notty", "litter_box_action")
 
@@ -254,14 +254,14 @@ async def test_live_shape_pet_binding_survives_merge(hass: HomeAssistant, runtim
 async def test_mode_1_is_auto_and_mode_changes_are_blocked(hass: HomeAssistant, runtime_api: MagicMock) -> None:
     """Raw mode=1 was verified as Auto in the actual NOTTY mobile app."""
     modes = next(description for description in SELECTS if description.key == FIELD_MODE)
-    assert modes.value_options == {1: "Auto"}
+    assert modes.value_options == {1: "Auto", 2: "Scheduled", 3: "Soft stool"}
 
     await setup(hass)
     mode = hass.states.get("select.test_box_mode")
     assert mode is not None
     assert mode.state == EXPECTED_AUTO
-    assert mode.attributes["options"] == ["Auto"]
-    with pytest.raises(HomeAssistantError, match="disabled until remaining mode codes"):
+    assert mode.attributes["options"] == ["Auto", "Scheduled", "Soft stool"]
+    with pytest.raises(HomeAssistantError, match="mode changes remain disabled"):
         await hass.services.async_call(
             "select", "select_option", {"entity_id": "select.test_box_mode", "option": "Auto"}, blocking=True
         )

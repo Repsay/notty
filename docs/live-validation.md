@@ -39,3 +39,5 @@ Start with read-only captures. This checklist is for the device owner; the autom
 9. Turn real responses into small synthetic test fixtures with invented IDs, names and timestamps. Keep tokens, account details, images, and raw captures out of Git/issues.
 
 Document the Home Assistant version, device model/firmware, account region, login method and each verified feature before describing a release as production ready.
+
+For #15, use the APK-backed mapping clean=1, empty=2, level=3; the old clean=0 and sterilize=3 labels were incorrect. Validate each physical effect separately with the owner present. No stop/pause or litter-box sterilize command has been established by the inspected callers. For #19, compare Scheduled=2 and Soft stool=3 against app readback; mode changes from this integration remain blocked pending schedule prerequisites and live checks.

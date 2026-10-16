@@ -7,6 +7,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady,
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from custom_components.notty.api import (
+    ONE_KEY_ACTIONS,
     REMINDER_CYCLE_FIELDS,
     REMINDER_LITTER_INTERVAL_ACTION,
     SAFE_LITTER_ACTIONS,
@@ -42,7 +43,6 @@ SOURCE_PET = "pet"
 SERVICE_LITTER_BOX_ACTION = "litter_box_action"
 SERVICE_LITTER_BOX_ONE_KEY = "litter_box_one_key"
 SERVICE_DEVICE_FIELD = "user_device_id"
-ONE_KEY_ACTIONS = {"clean": 0, "level": 1, "empty": 2, "sterilize": 3}
 
 
 def _get_coordinator(hass: HomeAssistant, user_device_id: str) -> NottyCoordinator:
@@ -136,11 +136,11 @@ def _register_services(hass: HomeAssistant) -> None:
         await coordinator.async_request_refresh()
 
     device_id_validator: vol.Coerce[str] = vol.Coerce(str)
-    command_validator: vol.Coerce[int] = vol.Coerce(int)
     empty_data: JsonObject = {}
+    one_key_codes: tuple[int, ...] = tuple(ONE_KEY_ACTIONS.values())
     one_key_schema: dict[object, object] = {
         vol.Required(SERVICE_DEVICE_FIELD): device_id_validator,
-        vol.Required("one_key"): vol.Any(vol.In(ONE_KEY_ACTIONS), command_validator),
+        vol.Required("one_key"): vol.Any(vol.In(ONE_KEY_ACTIONS), vol.In(one_key_codes)),
     }
     action_schema: dict[object, object] = {
         vol.Required(SERVICE_DEVICE_FIELD): device_id_validator,

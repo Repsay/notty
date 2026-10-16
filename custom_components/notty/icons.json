@@ -10,9 +10,6 @@
       "empty": {
         "default": "mdi:delete-empty"
       },
-      "sterilize": {
-        "default": "mdi:shimmer"
-      },
       "reset_litter_reminder": {
         "default": "mdi:calendar-refresh"
       },

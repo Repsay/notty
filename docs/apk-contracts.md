@@ -270,3 +270,5 @@ consistency, while retaining existing HTTP compatibility headers.
 Synthetic tests verify payloads, failure handling, credential cleanup and
 migration. The corrected metadata still requires a fresh live login to establish
 server acceptance; these changes do not claim new live authentication validation.
+
+See [one-key commands and mode contracts](apk-command-contracts.md) for #15 and #19, including corrected command values and remaining live-validation boundaries.

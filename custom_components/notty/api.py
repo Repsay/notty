@@ -11,6 +11,10 @@ import aiohttp
 HTTP_ERROR_STATUS = 400
 ACTION_ONE_KEY = "one_key"
 ACTION_SET_AUTO_DELAY = "set_auto_delay"
+ACTION_SET_MODE = "set_mode"
+DEVICE_TYPE_LITTER_BOX = "litter_box"
+ONE_KEY_ACTIONS = {"clean": 1, "empty": 2, "level": 3}
+LITTER_MODES = {1: "Auto", 2: "Scheduled", 3: "Soft stool"}
 MAX_DELAY_MINUTES = 15
 
 type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
@@ -68,7 +72,6 @@ LITTER_ACTION_ENDPOINTS = {
 }
 SAFE_LITTER_ACTIONS = (
     "one_key",
-    "set_mode",
     "set_key",
     "reset_litter_reminder",
     "reset_garbage_bag_reminder",
@@ -114,6 +117,23 @@ class NottyApiError(Exception):
 
 class NottyAuthError(NottyApiError):
     """Authentication failed."""
+
+
+def one_key_value(action: JsonValue) -> int:
+    """Resolve only the operations traced through app callers and serialization.
+
+    Returns:
+        The integer sent as one_key by the app.
+
+    Raises:
+        NottyApiError: If an operation has no established litter-box contract.
+    """
+    if isinstance(action, str) and action in ONE_KEY_ACTIONS:
+        return ONE_KEY_ACTIONS[action]
+    if type(action) is int and action in ONE_KEY_ACTIONS.values():
+        return action
+    msg = "Unsupported litter-box one_key value; use clean=1, empty=2, or level=3"
+    raise NottyApiError(msg)
 
 
 def timezone_catalog(value: JsonValue) -> list[JsonObject]:
@@ -1062,13 +1082,19 @@ class NottyApi(NottyTimezoneApi):
         return result
 
     async def command(self, device_id: str, action: JsonValue, device_type: str = "litter_box") -> JsonValue:
-        """Command.
+        """Send an APK-backed litter-box command.
 
         Returns:
-            JsonValue: The resulting command.
+            The decoded cloud response, which does not confirm a physical effect.
+
+        Raises:
+            NottyApiError: If the device kind or operation is unsupported.
         """
+        if device_type != DEVICE_TYPE_LITTER_BOX:
+            msg = "One-key commands are only established for litter boxes"
+            raise NottyApiError(msg)
         return await self.request(
-            "POST", f"/device/{device_type}/one_key", data={"user_device_id": device_id, "one_key": action}
+            "POST", "/device/litter_box/one_key", data={"user_device_id": device_id, "one_key": one_key_value(action)}
         )
 
     async def litter_action(self, device_id: str, action: str, data: JsonObject | None = None) -> JsonValue:
@@ -1084,11 +1110,13 @@ class NottyApi(NottyTimezoneApi):
         if not path:
             msg = f"Unsupported litter box action: {action}"
             raise NottyApiError(msg)
+        if action == ACTION_ONE_KEY:
+            return await self.command(device_id, (data or {}).get(ACTION_ONE_KEY))
+        if action == ACTION_SET_MODE:
+            msg = "NOTTY mode changes remain disabled pending schedule prerequisites and live validation"
+            raise NottyApiError(msg)
         settings = reminder_payload(action, data or {}) if action in REMINDER_CYCLE_FIELDS else (data or {})
         payload = {**settings, **self._device_payload(device_id)}
-        if action == ACTION_ONE_KEY and ACTION_ONE_KEY not in payload:
-            msg = "one_key action requires a one_key value"
-            raise NottyApiError(msg)
         if action == ACTION_SET_AUTO_DELAY:
             delay = payload.get("delay")
             if type(delay) is not int or not 1 <= delay <= MAX_DELAY_MINUTES:

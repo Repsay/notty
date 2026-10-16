@@ -40,7 +40,6 @@ litter_box_one_key:
             - clean
             - level
             - empty
-            - sterilize
 
 litter_box_action:
   name: Litter box action
@@ -58,7 +57,6 @@ litter_box_action:
         select:
           options:
             - one_key
-            - set_mode
             - set_key
             - reset_litter_reminder
             - reset_garbage_bag_reminder

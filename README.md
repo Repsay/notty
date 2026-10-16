@@ -33,13 +33,15 @@ Only fields returned by the account/device are exposed. The coordinator polls ev
 | --- | --- |
 | Sensors | Litter box state, cleaning counts, pet weight/usage, event times, duration statistics, reminders and related data |
 | Binary sensors | Connectivity, locks and reported boolean settings |
-| Buttons | Clean, level, empty, sterilize, reminder resets, weight reset and calibration |
+| Buttons | Clean, level, empty, reminder resets, weight reset and calibration |
 | Switches | Child lock, Do Not Disturb, litter-renewal reminder and trash-bag reminder |
 | Selects | Cleaning mode, automatic cleaning delay, known screen languages and reminder intervals |
 | Time | Do Not Disturb start/end |
 | Number | Pet weight, with existing litter-box binding preserved |
 
 Pet records become separate devices linked to the litter box. They do not receive litter-box command buttons. Known sensor fields use explicit units and device classes; unknown scalar fields remain ordinary sensors. Times and schedules are not guessed to be durations, and the weight-unit enum is not a weight measurement.
+
+The mode entity displays the APK-backed labels Auto (`1`), Scheduled (`2`) and Soft stool (`3`), with numeric fallback for unknown values. Mode writes remain blocked in the select and API; `set_mode` is no longer offered by the generic service while schedule setup and live mode behavior remain unverified.
 
 Automatic cleaning delay is available as a configuration select (1–15 minutes) when the device reports `auto_delay`. It is unavailable outside Auto mode, matching the app. Unknown delay values remain in the raw attributes without guessing a supported option.
 
@@ -86,7 +88,7 @@ automatically rewrites DND or cleaning schedules. See [issue #21](https://github
 
 For physical litter boxes that report `open_litter_remind` or `open_garbagebag_remind`, configuration switches enable (`action=1`) or disable (`action=2`) each reminder using the reported configured interval (`default_remaining_days`: 5–30 days; `garbage_bag_cycle_time`: 2–15 days). **Both operations require `cycle_time`.** Owner tests on a real NOTTY device confirmed that action 1 enables the reminder and restarts its countdown, while action 2 disables it without changing the configured cycle. Unknown state or missing/invalid cycle data prevents writes. **The litter-renewal interval selector is enabled for an already enabled reminder:** an owner test confirmed that `action=3` changes the configured litter interval and updates the remaining countdown (30 → 29 days). Selecting the same interval skips the write. Reminder reset buttons and the trash-bag interval selector remain blocked, as their live semantics have not been established.
 
-Two actions are also available in **Developer tools → Actions**: `notty.litter_box_one_key` and `notty.litter_box_action`. Their schemas are in [services.yaml](custom_components/notty/services.yaml). They require the **physical `user_device_id`**, not a pet ID. Command mappings remain experimental; verify them with your own device before relying on automations.
+Two actions are also available in **Developer tools → Actions**: `notty.litter_box_one_key` and `notty.litter_box_action`. Their schemas are in [services.yaml](custom_components/notty/services.yaml). They require the **physical `user_device_id`**, not a pet ID. One-key codes are now traced from the APK: **clean=1, empty=2, level=3**. The former clean=0, level=1 and sterilize=3 mappings were incorrect. The unsupported sterilize button/action has been removed. Review existing automations, especially numeric one-key values: `1` cleans and `3` levels. Static request evidence does not confirm physical behavior; validate each operation individually before relying on automations.
 
 Reminder enable/disable is available through the configuration switches (both send the configured cycle, not the remaining-day countdown). `set_litter_reminder_days` supports a changed 5–30 day cycle when the device explicitly reports an enabled litter reminder. Generic reset and trash-bag interval actions still reject requests until verified against the live API.
 
