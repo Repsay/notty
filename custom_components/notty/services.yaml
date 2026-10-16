@@ -20,7 +20,7 @@ litter_box_one_key:
 
 litter_box_action:
   name: Litter box action
-  description: Call a NOTTY litter box action or setting. Reminder reset and interval actions are currently disabled because action 2 was verified to disable reminders.
+  description: Call a NOTTY litter box action or setting. The litter reminder interval action (set_litter_reminder_days) is available only for an enabled reminder and a changed valid cycle (5–30 days). Reset and trash-bag interval actions remain disabled.
   fields:
     user_device_id:
       name: User device ID
