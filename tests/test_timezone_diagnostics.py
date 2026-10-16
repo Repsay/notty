@@ -119,15 +119,18 @@ def test_catalog_inventory_does_not_include_response_values() -> None:
 def test_catalog_lookup_reveals_only_matching_server_provided_strings() -> None:
     """The catalog ID is an opaque string; never infer an IANA identifier."""
     response = [
-        {"id": "europe-amsterdam-1", "display_name": "Amsterdam", "offset": "+02:00", "ignored": SAMPLE_CATALOG_SENTINEL},
+        {
+            "id": "europe-amsterdam-1",
+            "display_name": "Amsterdam",
+            "offset": "+02:00",
+            "ignored": SAMPLE_CATALOG_SENTINEL,
+        },
         {"id": "new-york-2", "display_name": "New York", "offset": "-04:00"},
     ]
     result = catalog_report(response, find="Amsterdam")
     assert result["entry_count"] == EXPECTED_CATALOG_COUNT
     assert result["match_count"] == 1
-    assert result["matches"] == [
-        {"id": "europe-amsterdam-1", "display_name": "Amsterdam", "offset": "+02:00"}
-    ]
+    assert result["matches"] == [{"id": "europe-amsterdam-1", "display_name": "Amsterdam", "offset": "+02:00"}]
     assert result["matches_truncated"] is False
     assert SAMPLE_CATALOG_SENTINEL not in json.dumps(result)
 
@@ -164,10 +167,7 @@ def test_catalog_search_requires_specific_filter() -> None:
 
 def test_catalog_match_output_bounded() -> None:
     """A broad match is limited to ten results, not the full catalog."""
-    catalog = [
-        {"id": f"zone-{n}", "display_name": f"Europe Zone {n}", "offset": "+01:00"}
-        for n in range(16)
-    ]
+    catalog = [{"id": f"zone-{n}", "display_name": f"Europe Zone {n}", "offset": "+01:00"} for n in range(16)]
     result = catalog_report(catalog, find="Zone")
     assert result["match_count"] == len(catalog)
     assert result["matches_truncated"] is True
