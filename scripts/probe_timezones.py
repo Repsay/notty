@@ -67,6 +67,7 @@ async def run(options: TimezoneProbeOptions) -> JsonObject:
 
     Raises:
         ValueError: If the capture path is unsafe or would overwrite a file.
+        TypeError: If the saved session has malformed credentials.
     """
     if options.capture_raw and (
         not options.capture_raw.name.endswith(".private.json") or options.capture_raw.exists()
