@@ -55,12 +55,16 @@ silently replaced by the HA zone in the diagnostic sensor.
 
 To inspect NOTTY's supported device-timezone catalog without changing the device,
 run `uv run scripts/probe_timezones.py --session-file probe-output/session.pr30.private.json`.
-The output is a **value-free schema inventory**; optional `--capture-raw
-probe-output/time-zones.private.json` saves a private, ignored local response
-for investigating the API's timezone IDs and offsets. The GET endpoint is
-APK-inferred and not yet owner-verified. Home Assistant does **not** expose
-device-timezone writes until the server's supported IDs, exact POST payload,
-and effects on schedules have been established. See [issue #21](https://github.com/Repsay/notty/issues/21).
+The read-only GET is confirmed on an owner's device: it returns an array of
+string `id`, `display_name` and `offset` fields. The default output is a
+**value-free schema inventory and entry count**. Add `--find Amsterdam`
+to display only up to ten matching entries and their exact server IDs,
+without exposing unrelated fields. Optional `--capture-raw
+probe-output/time-zones.private.json` saves a private, ignored local reply.
+The IDs and offsets have not yet been interpreted; in particular, IDs must
+not be invented from IANA names. Home Assistant does **not** expose
+device-timezone writes until the exact POST payload and effects on
+schedules have been established. See [issue #21](https://github.com/Repsay/notty/issues/21).
 
 For physical litter boxes that report `open_litter_remind` or `open_garbagebag_remind`, configuration switches enable (`action=1`) or disable (`action=2`) each reminder using the reported configured interval (`default_remaining_days`: 5–30 days; `garbage_bag_cycle_time`: 2–15 days). **Both operations require `cycle_time`.** Owner tests on a real NOTTY device confirmed that action 1 enables the reminder and restarts its countdown, while action 2 disables it without changing the configured cycle. Unknown state or missing/invalid cycle data prevents writes. **The litter-renewal interval selector is enabled for an already enabled reminder:** an owner test confirmed that `action=3` changes the configured litter interval and updates the remaining countdown (30 → 29 days). Selecting the same interval skips the write. Reminder reset buttons and the trash-bag interval selector remain blocked, as their live semantics have not been established.
 
