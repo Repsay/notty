@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "NOTTY koppelen",
+        "description": "Log in met het e-mailadres dat je in de NOTTY-app gebruikt. Vul je wachtwoord in, of laat wachtwoord leeg om een verificatiecode per e-mail te ontvangen.",
+        "data": {
+          "email": "E-mailadres",
+          "password": "Wachtwoord (optioneel)",
+          "region_code": "Regiocode",
+          "firebase_api_key": "Firebase API-sleutel overschrijven (optioneel)"
+        }
+      },
+      "code": {
+        "title": "NOTTY-code invoeren",
+        "description": "Voer de verificatiecode in die naar {email} is gestuurd.",
+        "data": {
+          "verification_code": "Verificatiecode"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Inloggen is mislukt",
+      "cannot_send_code": "Verificatiecode kon niet worden verzonden"
+    },
+    "abort": {
+      "already_configured": "Dit account is al toegevoegd",
+      "reauth_successful": "Opnieuw aanmelden geslaagd.",
+      "wrong_account": "Meld je aan met hetzelfde NOTTY-account als deze integratie."
+    }
+  }
+}

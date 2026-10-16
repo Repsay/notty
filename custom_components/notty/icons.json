@@ -1,0 +1,73 @@
+{
+  "entity": {
+    "button": {
+      "clean": {
+        "default": "mdi:broom"
+      },
+      "level": {
+        "default": "mdi:spirit-level"
+      },
+      "empty": {
+        "default": "mdi:delete-empty"
+      },
+      "sterilize": {
+        "default": "mdi:shimmer"
+      },
+      "reset_litter_reminder": {
+        "default": "mdi:calendar-refresh"
+      },
+      "reset_garbage_bag_reminder": {
+        "default": "mdi:delete-clock"
+      },
+      "reset_device_weight": {
+        "default": "mdi:scale"
+      },
+      "horizontal_calibration": {
+        "default": "mdi:spirit-level"
+      }
+    },
+    "switch": {
+      "switch_key": {
+        "default": "mdi:lock"
+      },
+      "switch_dnd": {
+        "default": "mdi:moon-waning-crescent"
+      }
+    },
+    "select": {
+      "mode": {
+        "default": "mdi:cog"
+      },
+      "language": {
+        "default": "mdi:translate"
+      },
+      "default_remaining_days": {
+        "default": "mdi:calendar-clock"
+      },
+      "garbage_bag_cycle_time": {
+        "default": "mdi:delete-clock"
+      }
+    },
+    "time": {
+      "dnd_begin_time": {
+        "default": "mdi:weather-night"
+      },
+      "dnd_end_time": {
+        "default": "mdi:weather-sunset-up"
+      }
+    },
+    "number": {
+      "weight": {
+        "default": "mdi:scale"
+      }
+    }
+  },
+  "services": {
+    "litter_box_one_key": {
+      "service": "mdi:cat"
+    },
+    "litter_box_action": {
+      "service": "mdi:tune"
+    }
+  }
+}

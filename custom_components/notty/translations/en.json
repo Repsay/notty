@@ -1,0 +1,124 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect NOTTY",
+        "description": "Sign in with the email address used by the NOTTY app. Enter your password, or leave password blank to receive an email verification code.",
+        "data": {
+          "email": "Email address",
+          "password": "Password (optional)",
+          "region_code": "Region code",
+          "firebase_api_key": "Firebase API key override (optional)"
+        }
+      },
+      "code": {
+        "title": "Enter NOTTY code",
+        "description": "Enter the verification code sent to {email}.",
+        "data": {
+          "verification_code": "Verification code"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Login failed: {error}",
+      "cannot_send_code": "Could not send verification code: {error}"
+    },
+    "abort": {
+      "already_configured": "This NOTTY account is already configured.",
+      "reauth_successful": "Reauthentication successful.",
+      "wrong_account": "Sign in with the same NOTTY account as this integration."
+    }
+  },
+  "entity": {
+    "button": {
+      "clean": {
+        "name": "Clean"
+      },
+      "level": {
+        "name": "Level litter"
+      },
+      "empty": {
+        "name": "Empty litter"
+      },
+      "sterilize": {
+        "name": "Sterilize"
+      },
+      "reset_litter_reminder": {
+        "name": "Reset litter renewal reminder"
+      },
+      "reset_garbage_bag_reminder": {
+        "name": "Reset trash bag reminder"
+      },
+      "reset_device_weight": {
+        "name": "Reset device weight"
+      },
+      "horizontal_calibration": {
+        "name": "Horizontal calibration"
+      }
+    },
+    "switch": {
+      "switch_key": {
+        "name": "Child Lock"
+      },
+      "switch_dnd": {
+        "name": "Do Not Disturb"
+      }
+    },
+    "select": {
+      "mode": {
+        "name": "Mode"
+      },
+      "language": {
+        "name": "Screen Language"
+      },
+      "default_remaining_days": {
+        "name": "Litter renewal reminder interval"
+      },
+      "garbage_bag_cycle_time": {
+        "name": "Trash bag reminder interval"
+      }
+    },
+    "time": {
+      "dnd_begin_time": {
+        "name": "Do Not Disturb Start"
+      },
+      "dnd_end_time": {
+        "name": "Do Not Disturb End"
+      }
+    },
+    "number": {
+      "weight": {
+        "name": "Weight"
+      }
+    }
+  },
+  "services": {
+    "litter_box_one_key": {
+      "name": "Litter box one-key action",
+      "description": "Run one of the NOTTY app one-key litter box actions.",
+      "fields": {
+        "user_device_id": {
+          "name": "User device ID"
+        },
+        "one_key": {
+          "name": "One-key action"
+        }
+      }
+    },
+    "litter_box_action": {
+      "name": "Litter box action",
+      "description": "Call a verified NOTTY litter box action or setting endpoint with app-compatible data. Reminder day actions use data.cycle_time.",
+      "fields": {
+        "user_device_id": {
+          "name": "User device ID"
+        },
+        "action": {
+          "name": "Action"
+        },
+        "data": {
+          "name": "Data"
+        }
+      }
+    }
+  }
+}

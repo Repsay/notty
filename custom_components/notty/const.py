@@ -1,0 +1,12 @@
+DOMAIN = "notty"
+CONF_EMAIL = "email"
+CONF_PASSWORD = "password"
+CONF_VERIFICATION_CODE = "verification_code"
+CONF_ACCESS_TOKEN = "access_token"
+CONF_REFRESH_TOKEN = "refresh_token"
+CONF_USER_ID = "user_id"
+CONF_FIREBASE_API_KEY = "firebase_api_key"
+CONF_REGION_CODE = "region_code"
+DEFAULT_REGION_CODE = "NL"
+DEFAULT_SCAN_INTERVAL = 60
+PLATFORMS = ["sensor", "binary_sensor", "button", "switch", "select", "time", "number"]

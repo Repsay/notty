@@ -1,0 +1,51 @@
+litter_box_one_key:
+  name: Litter box one-key action
+  description: Run one of the NOTTY app one-key litter box actions.
+  fields:
+    user_device_id:
+      name: User device ID
+      required: true
+      selector:
+        text:
+    one_key:
+      name: One-key action
+      required: true
+      selector:
+        select:
+          options:
+            - clean
+            - level
+            - empty
+            - sterilize
+
+litter_box_action:
+  name: Litter box action
+  description: Call a verified NOTTY litter box action or setting endpoint with app-compatible data. Reminder day actions use data.cycle_time.
+  fields:
+    user_device_id:
+      name: User device ID
+      required: true
+      selector:
+        text:
+    action:
+      name: Action
+      required: true
+      selector:
+        select:
+          options:
+            - one_key
+            - set_mode
+            - set_key
+            - reset_litter_reminder
+            - reset_garbage_bag_reminder
+            - set_litter_reminder_days
+            - set_garbage_bag_reminder_days
+            - set_dnd
+            - set_language
+            - reset_device_weight
+            - horizontal_calibration
+    data:
+      name: Data
+      required: false
+      selector:
+        object:
