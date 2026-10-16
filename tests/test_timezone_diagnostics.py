@@ -16,7 +16,7 @@ from tests.test_lifecycle import setup
 
 LOCAL_ZONE = "Europe/Amsterdam"
 OFFSET_KEY = "device_utc_offset_minutes"
-CATALOG_SECRET = "private-token"
+SAMPLE_CATALOG_SENTINEL = "private-token"
 CATALOG_DEVICE_ID = "52963"
 CATALOG_LIST_PATH = "data[]"
 EXPECTED_AMSTERDAM_CEST_OFFSET = 120
@@ -100,14 +100,14 @@ def test_catalog_inventory_does_not_include_response_values() -> None:
     """A shareable report must not leak catalog IDs, tokens or private values."""
     response = {
         "data": [
-            {"id": int(CATALOG_DEVICE_ID), "name": LOCAL_ZONE, "secret": CATALOG_SECRET},
+            {"id": int(CATALOG_DEVICE_ID), "name": LOCAL_ZONE, "secret": SAMPLE_CATALOG_SENTINEL},
             {"id": 92001, "name": "America/New_York"},
         ]
     }
     result = catalog_report(response)
     text = json.dumps(result)
     assert TIME_ZONE_CATALOG_PATH in text
-    assert CATALOG_SECRET not in text
+    assert SAMPLE_CATALOG_SENTINEL not in text
     assert LOCAL_ZONE not in text
     assert CATALOG_DEVICE_ID not in text
     assert CATALOG_LIST_PATH in text
