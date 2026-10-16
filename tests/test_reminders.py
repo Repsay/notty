@@ -59,12 +59,7 @@ async def test_wire_contract(reminder: Reminder, operation: int) -> None:
 
 
 @pytest.mark.parametrize(
-    "action",
-    [
-        "reset_litter_reminder",
-        "reset_garbage_bag_reminder",
-        "set_garbage_bag_reminder_days",
-    ],
+    "action", ["reset_litter_reminder", "reset_garbage_bag_reminder", "set_garbage_bag_reminder_days"]
 )
 async def test_unverified_reminder_operations_do_not_write(action: str) -> None:
     """Observed action 2 disables reminders and must not be reused for reset/update."""
@@ -244,7 +239,9 @@ async def test_unsupported_device_has_no_reminder_switch(hass: HomeAssistant) ->
 async def test_litter_interval_select_changes_enabled_reminder(hass: HomeAssistant, runtime_api: MagicMock) -> None:
     """HA interval select uses the verified action-3 mapping."""
     runtime_api.device_info.return_value.update({
-        "open_litter_remind": True, "default_remaining_days": 30, "remaining_days": 30
+        "open_litter_remind": True,
+        "default_remaining_days": 30,
+        "remaining_days": 30,
     })
     await setup(hass)
     entity_id = "select.test_box_litter_renewal_reminder_interval"
@@ -262,7 +259,9 @@ async def test_litter_interval_select_noop_does_not_reset_countdown(
 ) -> None:
     """Never resend unchanged cycle; action 3 same-cycle reset is unverified."""
     runtime_api.device_info.return_value.update({
-        "open_litter_remind": True, "default_remaining_days": 30, "remaining_days": 21
+        "open_litter_remind": True,
+        "default_remaining_days": 30,
+        "remaining_days": 21,
     })
     await setup(hass)
     await hass.services.async_call(
@@ -291,9 +290,7 @@ async def test_litter_interval_select_unavailable_when_not_enabled(
     runtime_api.litter_action.assert_not_awaited()
 
 
-async def test_generic_litter_interval_action_three(
-    hass: HomeAssistant, runtime_api: MagicMock
-) -> None:
+async def test_generic_litter_interval_action_three(hass: HomeAssistant, runtime_api: MagicMock) -> None:
     """Generic service also validates active state before an interval write."""
     runtime_api.device_info.return_value.update({"open_litter_remind": True, "default_remaining_days": 30})
     await setup(hass)
@@ -325,9 +322,7 @@ async def test_generic_litter_interval_rejects_disabled(
     runtime_api.litter_action.assert_not_awaited()
 
 
-async def test_generic_litter_interval_rejects_unchanged(
-    hass: HomeAssistant, runtime_api: MagicMock
-) -> None:
+async def test_generic_litter_interval_rejects_unchanged(hass: HomeAssistant, runtime_api: MagicMock) -> None:
     """Avoid running an unverified reset via an unchanged cycle value."""
     runtime_api.device_info.return_value.update({"open_litter_remind": True, "default_remaining_days": 30})
     await setup(hass)
