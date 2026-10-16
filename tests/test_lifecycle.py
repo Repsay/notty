@@ -124,6 +124,7 @@ async def test_pet_id_rejected_before_hardware_command(hass: HomeAssistant, runt
 @pytest.mark.parametrize("boundary", ["start", "end"])
 async def test_dnd_time_preserves_other_settings(hass: HomeAssistant, runtime_api: MagicMock, boundary: str) -> None:
     """Verify dnd time preserves other settings."""
+    hass.config.set_time_zone("Asia/Shanghai")
     await setup(hass)
     await hass.services.async_call(
         "time",
@@ -150,6 +151,7 @@ async def test_switch_uses_write_field_and_preserves_dnd(
 ) -> None:
     """Verify switch uses write field and preserves dnd."""
     setting, action = setting_action
+    hass.config.set_time_zone("Asia/Shanghai")
     await setup(hass)
     await hass.services.async_call("switch", service, {"entity_id": f"switch.test_box_{setting}"}, blocking=True)
     payload = {"switch": expected}
@@ -165,6 +167,7 @@ async def test_missing_shared_dnd_setting_prevents_write(
 ) -> None:
     """Verify missing shared dnd setting prevents write."""
     runtime_api.device_info.return_value.pop(missing)
+    hass.config.set_time_zone("Asia/Shanghai")
     await setup(hass)
     service = "turn_off" if platform == EXPECTED_SWITCH else "set_value"
     entity = "switch.test_box_do_not_disturb" if platform == EXPECTED_SWITCH else "time.test_box_do_not_disturb_start"
@@ -174,6 +177,34 @@ async def test_missing_shared_dnd_setting_prevents_write(
     with pytest.raises(HomeAssistantError, match="Cannot preserve"):
         await hass.services.async_call(platform, service, data, blocking=True)
     runtime_api.litter_action.assert_not_awaited()
+
+
+async def test_dnd_ha_time_entity_converts_readback(
+    hass: HomeAssistant, runtime_api: MagicMock
+) -> None:
+    """HA displays the Shanghai-coded API time in the configured local timezone."""
+    hass.config.set_time_zone("UTC")
+    runtime_api.device_info.return_value.update({
+        "time_zone_iana": "Asia/Shanghai",
+        "dnd_begin_time": "22:00",
+        "dnd_end_time": "07:00",
+    })
+    await setup(hass)
+    start = hass.states.get("time.test_box_do_not_disturb_start")
+    end = hass.states.get("time.test_box_do_not_disturb_end")
+    assert start is not None and start.state == "14:00:00"
+    assert end is not None and end.state == "23:00:00"
+    await hass.services.async_call(
+        "time",
+        "set_value",
+        {"entity_id": "time.test_box_do_not_disturb_start", "time": "15:30:00"},
+        blocking=True,
+    )
+    runtime_api.litter_action.assert_awaited_once_with(
+        "box-1",
+        "set_dnd",
+        {"switch": 1, "led": 2, "dnd_begin_time": "23:30", "dnd_end_time": "07:00"},
+    )
 
 
 async def test_live_shape_pet_binding_survives_merge(hass: HomeAssistant, runtime_api: MagicMock) -> None:
