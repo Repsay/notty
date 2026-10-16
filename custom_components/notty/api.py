@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import time
+from datetime import UTC, date, datetime, time
 import json
 import logging
 from typing import TypedDict, Unpack, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 
@@ -105,18 +106,114 @@ class NottyAuthError(NottyApiError):
     """Authentication failed."""
 
 
-def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
-    """Build a DND write while preserving the shared LED and time settings.
+DND_READ_TIME_ZONE = "Asia/Shanghai"
+DND_TIME_FIELDS = ("dnd_begin_time", "dnd_end_time")
 
-    The app reads switch_dnd but writes switch. Never invent defaults for
-    settings that the same endpoint may overwrite (APK 1.1.30, 0xcc6fc8).
+
+def _dnd_clock(value: JsonValue) -> time:
+    """Validate a time-of-day without accepting offsets or seconds.
 
     Returns:
-        The computed result.
+        A timezone-free clock value.
 
     Raises:
-        NottyApiError: When the requested operation cannot be completed.
+        NottyApiError: If the clock value is unavailable or invalid.
     """
+    try:
+        parsed = time.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        parsed = None
+    if parsed is None or parsed.tzinfo is not None or parsed.second or parsed.microsecond:
+        msg = "Cannot preserve current Do Not Disturb interval"
+        raise NottyApiError(msg)
+    return parsed
+
+
+def _dnd_shift_time(
+    value: JsonValue, source_time_zone: str, target_time_zone: str, *, at: datetime | None = None
+) -> time:
+    """Translate recurring clock values using offsets at a single instant.
+
+    NOTTY returns recurring wall times with no calendar date, so a future
+    DST-boundary offset cannot be inferred from the response itself.
+
+    Returns:
+        A clock time in the target timezone.
+
+    Raises:
+        NottyApiError: If the time or timezone is invalid.
+    """
+    parsed = _dnd_clock(value)
+    try:
+        source_zone = ZoneInfo(source_time_zone)
+        target_zone = ZoneInfo(target_time_zone)
+    except (KeyError, ZoneInfoNotFoundError, ValueError) as exc:
+        msg = "Cannot convert Do Not Disturb times without valid IANA timezones"
+        raise NottyApiError(msg) from exc
+    moment = at or datetime.now(UTC)
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        msg = "Cannot convert Do Not Disturb times without an aware reference instant"
+        raise NottyApiError(msg)
+    source_offset = moment.astimezone(source_zone).utcoffset()
+    target_offset = moment.astimezone(target_zone).utcoffset()
+    if source_offset is None or target_offset is None:
+        msg = "Cannot determine Do Not Disturb timezone offset"
+        raise NottyApiError(msg)
+    return (datetime.combine(date(2000, 1, 1), parsed) + (target_offset - source_offset)).time()
+
+
+def dnd_time_zone(current: JsonObject, *, fallback: str | None = None) -> str:
+    """Resolve the device's configured IANA zone, falling back only if absent.
+
+    Returns:
+        A validated IANA timezone name.
+
+    Raises:
+        NottyApiError: If no usable timezone is available.
+    """
+    configured = current.get("time_zone_iana")
+    if not configured:
+        configured = fallback
+    if not isinstance(configured, str) or not configured:
+        msg = "Cannot change Do Not Disturb without a NOTTY or fallback IANA timezone"
+        raise NottyApiError(msg)
+    try:
+        ZoneInfo(configured)
+    except (KeyError, ZoneInfoNotFoundError, ValueError) as exc:
+        msg = "Invalid reported Do Not Disturb device timezone"
+        raise NottyApiError(msg) from exc
+    return configured
+
+
+def dnd_local_time(value: JsonValue, time_zone: str, *, at: datetime | None = None) -> time:
+    """Convert API readback (apparent Shanghai clock) directly into HA time.
+
+    Returns:
+        The converted local clock value.
+    """
+    return _dnd_shift_time(value, DND_READ_TIME_ZONE, time_zone, at=at)
+
+
+def dnd_payload(
+    current: JsonObject,
+    *,
+    time_zone: str | None = None,
+    input_time_zone: str | None = None,
+    at: datetime | None = None,
+    **changes: JsonValue,
+) -> JsonObject:
+    """Send device-local clock times; never echo the shifted API readback.
+
+    Prefer NOTTY's time_zone_iana to any caller-provided fallback. HA edits
+    are in HA's timezone and must be converted again to device-local time.
+
+    Returns:
+        A validated DND request containing device-local clock values.
+
+    Raises:
+        NottyApiError: If any preserved setting or zone is unknown or invalid.
+    """
+    device_zone = dnd_time_zone(current, fallback=time_zone)
     state = {**current, **changes}
     enabled = state.get("switch_dnd")
     if not isinstance(enabled, (bool, int, str)) or enabled not in {0, 1, "0", "1"}:
@@ -127,15 +224,14 @@ def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
         msg = "Cannot preserve unknown LED setting for Do Not Disturb"
         raise NottyApiError(msg)
     payload: JsonObject = {"switch": int(enabled), "led": led}
-    for key in ("dnd_begin_time", "dnd_end_time"):
-        value = state.get(key)
-        try:
-            parsed = time.fromisoformat(value) if isinstance(value, str) else None
-        except ValueError:
-            parsed = None
-        if parsed is None or parsed.tzinfo is not None or parsed.second or parsed.microsecond:
-            msg = "Cannot preserve current Do Not Disturb interval"
-            raise NottyApiError(msg)
+    for key in DND_TIME_FIELDS:
+        if key in changes:
+            # Explicit user edits are in HA timezone, unless a standalone
+            # caller passes device-local values without an input timezone.
+            source_zone = input_time_zone or device_zone
+            parsed = _dnd_shift_time(changes[key], source_zone, device_zone, at=at)
+        else:
+            parsed = dnd_local_time(current.get(key), device_zone, at=at)
         payload[key] = parsed.strftime("%H:%M")
     if payload["switch"] and payload["dnd_begin_time"] == payload["dnd_end_time"]:
         msg = "Cannot enable Do Not Disturb with identical start/end times"
