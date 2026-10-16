@@ -94,6 +94,8 @@ REMINDER_CYCLE_FIELDS = {
 REMINDER_DAY_RANGES = {"default_remaining_days": range(5, 31), "garbage_bag_cycle_time": range(2, 16)}
 REMINDER_ENABLE = 1
 REMINDER_DISABLE = 2
+REMINDER_UPDATE = 3
+REMINDER_LITTER_INTERVAL_ACTION = "set_litter_reminder_days"
 REMINDER_TOGGLE_ACTIONS = {"set_litter_remind", "set_garbage_bag_remind"}
 
 LIST_KEYS = ("list", "devices", "rows", "items", "data")
@@ -119,23 +121,29 @@ class NottyAuthError(NottyApiError):
 
 
 def reminder_payload(action: str, data: JsonObject) -> JsonObject:
-    """Validate observed live enable (1) and disable (2) reminder requests.
+    """Build a validated reminder request using owner-observed live operation codes.
 
-    Reset and interval-update actions are blocked until their live API
-    semantics are verified; action 2 was observed to *disable* the reminder.
+    Litter interval changes (3) were verified on an already enabled reminder;
+    reset and trash-bag interval changes remain blocked pending live testing.
 
     Returns:
-        Strictly validated settings without unrelated device read fields.
+        Only the validated operation and configured cycle, without read fields.
 
     Raises:
-        NottyApiError: If the operation or configured interval is unverified.
+        NottyApiError: If an action or configured interval is unverified.
     """
-    if action not in REMINDER_TOGGLE_ACTIONS:
-        msg = "Reminder reset and interval changes are disabled pending live endpoint verification"
-        raise NottyApiError(msg)
-    operation = data.get("action")
-    if type(operation) is not int or operation not in {REMINDER_ENABLE, REMINDER_DISABLE}:
-        msg = "Reminder action must be an integer: enable=1, disable=2"
+    if action == REMINDER_LITTER_INTERVAL_ACTION:
+        operation = data.get("action", REMINDER_UPDATE)
+        if type(operation) is not int or operation != REMINDER_UPDATE:
+            msg = "Litter interval action must use action=3"
+            raise NottyApiError(msg)
+    elif action in REMINDER_TOGGLE_ACTIONS:
+        operation = data.get("action")
+        if type(operation) is not int or operation not in {REMINDER_ENABLE, REMINDER_DISABLE}:
+            msg = "Reminder action must be an integer: enable=1, disable=2"
+            raise NottyApiError(msg)
+    else:
+        msg = "Reminder reset and trash bag interval changes are disabled pending live endpoint verification"
         raise NottyApiError(msg)
     cycle = data.get("cycle_time")
     if isinstance(cycle, str) and cycle.isascii() and cycle.isdecimal():
@@ -145,7 +153,6 @@ def reminder_payload(action: str, data: JsonObject) -> JsonObject:
         msg = f"Reminder cycle_time must be an integer from {allowed.start} to {allowed.stop - 1} days"
         raise NottyApiError(msg)
     return {"action": operation, "cycle_time": cycle}
-
 
 def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
     """Build a DND write while preserving the shared LED and time settings.
