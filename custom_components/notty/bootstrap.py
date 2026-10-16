@@ -15,7 +15,6 @@ from custom_components.notty.api import (
     NottyAuthError,
     reminder_payload,
 )
-from custom_components.notty.entity import value_from_block
 from custom_components.notty.const import (
     CONF_ACCESS_TOKEN,
     CONF_EMAIL,
@@ -30,6 +29,7 @@ from custom_components.notty.const import (
     PLATFORMS,
 )
 from custom_components.notty.coordinator import NottyCoordinator
+from custom_components.notty.entity import value_from_block
 from custom_components.notty.models import NottyConfigEntry
 from custom_components.notty.validation import vol
 
@@ -40,6 +40,7 @@ CONFIG_ENTRY_VERSION = 2
 SERVICE_LITTER_BOX_ACTION = "litter_box_action"
 SERVICE_LITTER_BOX_ONE_KEY = "litter_box_one_key"
 SERVICE_DEVICE_FIELD = "user_device_id"
+REMINDER_CYCLE_FIELD = "cycle_time"
 ONE_KEY_ACTIONS = {"clean": 0, "level": 1, "empty": 2, "sterilize": 3}
 
 
@@ -98,10 +99,10 @@ def _register_services(hass: HomeAssistant) -> None:
             action_data = {}
         # Keep the existing reset service convenient without guessing an interval:
         # read it from this physical device if the caller did not provide one.
-        if action in {"reset_litter_reminder", "reset_garbage_bag_reminder"} and "cycle_time" not in action_data:
+        if action in {"reset_litter_reminder", "reset_garbage_bag_reminder"} and REMINDER_CYCLE_FIELD not in action_data:
             action_data = {
                 **action_data,
-                "cycle_time": value_from_block(coordinator.data[user_device_id], REMINDER_CYCLE_FIELDS[action]),
+                REMINDER_CYCLE_FIELD: value_from_block(coordinator.data[user_device_id], REMINDER_CYCLE_FIELDS[action]),
             }
         try:
             if action in REMINDER_CYCLE_FIELDS:
