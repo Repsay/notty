@@ -33,6 +33,8 @@ REMINDERS = [
 EXPECTED_UNKNOWN = "unknown"
 EXPECTED_OFF = "off"
 EXPECTED_ON = "on"
+EXPECTED_UNAVAILABLE = "unavailable"
+EXPECTED_30_DAYS = "30 days"
 
 
 @pytest.mark.parametrize("reminder", REMINDERS)
@@ -239,26 +241,20 @@ async def test_unsupported_device_has_no_reminder_switch(hass: HomeAssistant) ->
     assert hass.states.get("switch.test_box_trash_bag_reminder") is None
 
 
-async def test_litter_interval_select_changes_enabled_reminder(
-    hass: HomeAssistant, runtime_api: MagicMock
-) -> None:
+async def test_litter_interval_select_changes_enabled_reminder(hass: HomeAssistant, runtime_api: MagicMock) -> None:
     """HA interval select uses the verified action-3 mapping."""
     runtime_api.device_info.return_value.update({
-        "open_litter_remind": True,
-        "default_remaining_days": 30,
-        "remaining_days": 30,
+        "open_litter_remind": True, "default_remaining_days": 30, "remaining_days": 30
     })
     await setup(hass)
     entity_id = "select.test_box_litter_renewal_reminder_interval"
     state = hass.states.get(entity_id)
     assert state is not None
-    assert state.state == "30 days"
+    assert state.state == EXPECTED_30_DAYS
     await hass.services.async_call(
         "select", "select_option", {"entity_id": entity_id, "option": "29 days"}, blocking=True
     )
-    runtime_api.litter_action.assert_awaited_once_with(
-        "box-1", "set_litter_reminder_days", {"cycle_time": 29}
-    )
+    runtime_api.litter_action.assert_awaited_once_with("box-1", "set_litter_reminder_days", {"cycle_time": 29})
 
 
 async def test_litter_interval_select_noop_does_not_reset_countdown(
@@ -266,9 +262,7 @@ async def test_litter_interval_select_noop_does_not_reset_countdown(
 ) -> None:
     """Never resend unchanged cycle; action 3 same-cycle reset is unverified."""
     runtime_api.device_info.return_value.update({
-        "open_litter_remind": True,
-        "default_remaining_days": 30,
-        "remaining_days": 21,
+        "open_litter_remind": True, "default_remaining_days": 30, "remaining_days": 21
     })
     await setup(hass)
     await hass.services.async_call(
@@ -290,7 +284,7 @@ async def test_litter_interval_select_unavailable_when_not_enabled(
     entity_id = "select.test_box_litter_renewal_reminder_interval"
     state = hass.states.get(entity_id)
     assert state is not None
-    assert state.state == "unavailable"
+    assert state.state == EXPECTED_UNAVAILABLE
     await hass.services.async_call(
         "select", "select_option", {"entity_id": entity_id, "option": "29 days"}, blocking=True
     )
