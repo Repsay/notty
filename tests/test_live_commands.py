@@ -32,20 +32,14 @@ def make_api(*, status=0, switch_key=0, switch_dnd=0):
 
 async def test_status_is_read_only():
     api = make_api()
-    assert (
-        await validate(api, device_id="9999", action="status", value=None, execute=False)
-        == 0
-    )
+    assert await validate(api, device_id="9999", action="status", value=None, execute=False) == 0
     api.litter_action.assert_not_awaited()
 
 
 async def test_dry_run_does_not_call_write_api():
     api = make_api()
     assert (
-        await validate(
-            api, device_id="9999", action="child-lock", value="on", execute=False
-        )
-        == 0
+        await validate(api, device_id="9999", action="child-lock", value="on", execute=False) == 0
     )
     api.litter_action.assert_not_awaited()
 
