@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -276,7 +276,9 @@ def _related_summary(
     return summary
 
 
-def _litter_related_summary(related: dict, target_time_zone: str | None = None) -> dict:
+def _litter_related_summary(
+    related: dict, target_time_zone: str | None = None, *, today: date | None = None
+) -> dict:
     summary = _related_summary(related)
     for key, value in related.items():
         if key.endswith("_count"):
@@ -318,24 +320,38 @@ def _litter_related_summary(related: dict, target_time_zone: str | None = None) 
                 if names:
                     summary["litter_pet_names"] = ", ".join(names)
             elif key == "daily_event_counts" and value:
-                latest = value[-1]
-                if isinstance(latest, dict):
-                    year = latest.get("year")
-                    month = latest.get("month")
-                    day = latest.get("day")
-                    count = latest.get("count")
-                    if None not in (year, month, day):
-                        summary["latest_daily_event_date"] = (
-                            f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
-                        )
-                    if count is not None:
-                        summary["latest_daily_event_count"] = count
-                counts = [item.get("count") for item in value if isinstance(item.get("count"), int)]
-                if counts:
-                    summary["daily_events_total"] = sum(counts)
-                    summary["daily_events_last_7_days"] = sum(counts[-7:])
-                    summary["daily_events_last_30_days"] = sum(counts[-30:])
-                    summary["daily_events_average"] = round(sum(counts) / len(counts), 2)
+                local_today = today or datetime.now(_timezone(target_time_zone)).date()
+                dated_counts: list[tuple[date, int]] = []
+                for item in value:
+                    if not isinstance(item, dict):
+                        continue
+                    count = item.get("count")
+                    if isinstance(count, bool) or not isinstance(count, int):
+                        continue
+                    try:
+                        event_day = date(int(item["year"]), int(item["month"]), int(item["day"]))
+                    except KeyError, ValueError, TypeError:
+                        continue
+                    if event_day <= local_today:
+                        dated_counts.append((event_day, count))
+                if dated_counts:
+                    latest_day, latest_count = max(dated_counts, key=lambda row: row[0])
+                    summary["latest_daily_event_date"] = latest_day.isoformat()
+                    summary["latest_daily_event_count"] = latest_count
+                    summary["daily_events_total"] = sum(count for _, count in dated_counts)
+                    summary["daily_events_last_7_days"] = sum(
+                        count
+                        for day, count in dated_counts
+                        if local_today - timedelta(days=6) <= day <= local_today
+                    )
+                    summary["daily_events_last_30_days"] = sum(
+                        count
+                        for day, count in dated_counts
+                        if local_today - timedelta(days=29) <= day <= local_today
+                    )
+                    summary["daily_events_average"] = round(
+                        summary["daily_events_total"] / len(dated_counts), 2
+                    )
             elif key == "associated_pets":
                 names = [
                     str(item.get("name"))
