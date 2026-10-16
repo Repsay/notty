@@ -25,7 +25,7 @@ class Reminder(NamedTuple):
 
 ACTION_LITTER = "set_litter_remind"
 RESET_LITTER = "reset_litter_reminder"
-DISABLE = 3
+DISABLE = 2
 REMINDERS = [
     Reminder(ACTION_LITTER, "open_litter_remind", "default_remaining_days", "litter_renewal_reminder", 20),
     Reminder("set_garbage_bag_remind", "open_garbagebag_remind", "garbage_bag_cycle_time", "trash_bag_reminder", 7),
@@ -36,7 +36,7 @@ EXPECTED_ON = "on"
 
 
 @pytest.mark.parametrize("reminder", REMINDERS)
-@pytest.mark.parametrize("operation", [1, 2, 3])
+@pytest.mark.parametrize("operation", [1, 2])
 async def test_wire_contract(reminder: Reminder, operation: int) -> None:
     """Match the app's action and cycle fields without leaking read-state fields."""
     action, _, _, _, cycle = reminder
@@ -46,8 +46,7 @@ async def test_wire_contract(reminder: Reminder, operation: int) -> None:
     before = data.copy()
     await api.litter_action("box-1", action, data)
     expected = {"action": operation, "user_device_id": "box-1", "device_id": "box-1"}
-    if operation != DISABLE:
-        expected["cycle_time"] = cycle
+    expected["cycle_time"] = cycle
     endpoint = (
         "/device/litter_box/set_litter_remind"
         if action == ACTION_LITTER
@@ -66,18 +65,13 @@ async def test_wire_contract(reminder: Reminder, operation: int) -> None:
         "set_garbage_bag_reminder_days",
     ],
 )
-async def test_existing_service_operations_use_reset_code(action: str) -> None:
-    """Reset and cycle adjustment use action 2, never the enable or disable code."""
+async def test_unverified_reminder_operations_do_not_write(action: str) -> None:
+    """Observed action 2 disables reminders and must not be reused for reset/update."""
     api = NottyApi(MagicMock())
     api.request = AsyncMock()
-    await api.litter_action("box-1", action, {"cycle_time": 10, "action": 3})
-    assert api.request.call_args.kwargs["data"] == {
-        "action": 2,
-        "cycle_time": 10,
-        "user_device_id": "box-1",
-        "device_id": "box-1",
-    }
-
+    with pytest.raises(NottyApiError, match="disabled pending live endpoint verification"):
+        await api.litter_action("box-1", action, {"cycle_time": 10})
+    api.request.assert_not_awaited()
 
 @pytest.mark.parametrize("cycle", [None, True, False, 1, 31, 3.5, "unknown", {}, []])
 async def test_invalid_interval_never_writes(cycle: object) -> None:
@@ -89,7 +83,7 @@ async def test_invalid_interval_never_writes(cycle: object) -> None:
     api.request.assert_not_awaited()
 
 
-@pytest.mark.parametrize("operation", [None, True, False, 0, 4, "1", {}, []])
+@pytest.mark.parametrize("operation", [None, True, False, 0, 3, 4, "1", {}, []])
 def test_invalid_operation_is_rejected(operation: object) -> None:
     """Do not confuse booleans or the read state with action enums."""
     with pytest.raises(NottyApiError, match="Reminder action"):
@@ -99,17 +93,21 @@ def test_invalid_operation_is_rejected(operation: object) -> None:
 @pytest.mark.parametrize(
     ("action", "minimum", "maximum"), [("set_litter_remind", 5, 30), ("set_garbage_bag_remind", 2, 15)]
 )
-def test_interval_boundaries(action: str, minimum: int, maximum: int) -> None:
-    """Use the picker ranges for each separate reminder."""
+@pytest.mark.parametrize("operation", [1, 2])
+def test_interval_boundaries(action: str, minimum: int, maximum: int, operation: int) -> None:
+    """The server requires a valid cycle for both enable and disable."""
     for days in (minimum, maximum):
-        assert reminder_payload(action, {"action": 1, "cycle_time": str(days)}) == {"action": 1, "cycle_time": days}
+        assert reminder_payload(action, {"action": operation, "cycle_time": str(days)}) == {
+            "action": operation,
+            "cycle_time": days,
+        }
     for days in (minimum - 1, maximum + 1):
         with pytest.raises(NottyApiError, match="cycle_time"):
-            reminder_payload(action, {"action": 1, "cycle_time": days})
+            reminder_payload(action, {"action": operation, "cycle_time": days})
 
 
 @pytest.mark.parametrize("reminder", REMINDERS)
-@pytest.mark.parametrize("transition", [("turn_on", 0, 1), ("turn_off", 1, 3)])
+@pytest.mark.parametrize("transition", [("turn_on", 0, 1), ("turn_off", 1, 2)])
 async def test_switch_preserves_interval_and_refreshes(
     hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder, transition: tuple[str, int, int]
 ) -> None:
@@ -121,9 +119,7 @@ async def test_switch_preserves_interval_and_refreshes(
     before = runtime_api.device_info.return_value.copy()
     entity_id = f"switch.test_box_{entity}"
     assert hass.states.get(entity_id).state == (EXPECTED_ON if initial else EXPECTED_OFF)
-    expected = {"action": operation}
-    if operation == 1:
-        expected["cycle_time"] = cycle
+    expected = {"action": operation, "cycle_time": cycle}
     await hass.services.async_call("switch", service, {"entity_id": entity_id}, blocking=True)
     runtime_api.litter_action.assert_awaited_once_with("box-1", action, expected)
     assert runtime_api.device_info.return_value == before
@@ -157,15 +153,16 @@ async def test_enabling_requires_configured_interval(
 
 
 @pytest.mark.parametrize("reminder", REMINDERS)
-async def test_disabling_does_not_need_or_write_interval(
+async def test_disabling_requires_configured_interval(
     hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
 ) -> None:
-    """The app's disable request contains no cycle field."""
-    action, field, _, entity, _ = reminder
+    """Both live endpoints reject the disable request without cycle_time."""
+    _, field, _, entity, _ = reminder
     runtime_api.device_info.return_value.update({field: 1})
     await setup(hass)
-    await hass.services.async_call("switch", "turn_off", {"entity_id": f"switch.test_box_{entity}"}, blocking=True)
-    runtime_api.litter_action.assert_awaited_once_with("box-1", action, {"action": 3})
+    with pytest.raises(HomeAssistantError, match="cycle_time"):
+        await hass.services.async_call("switch", "turn_off", {"entity_id": f"switch.test_box_{entity}"}, blocking=True)
+    runtime_api.litter_action.assert_not_awaited()
 
 
 @pytest.mark.parametrize("reminder", REMINDERS)
@@ -190,17 +187,17 @@ async def test_unknown_state_cannot_be_written(
         ("reset_garbage_bag_reminder", "garbage_bag_cycle_time", 7),
     ],
 )
-async def test_reset_button_uses_configured_interval(
+async def test_reset_button_is_blocked_until_verified(
     hass: HomeAssistant, runtime_api: MagicMock, button: str, cycle_key: str, cycle: int
 ) -> None:
-    """Existing reset buttons now send the complete app reset request."""
+    """Action 2 disables the device; never use it for a reset button."""
     runtime_api.device_info.return_value[cycle_key] = cycle
     await setup(hass)
     entity_name = "reset_litter_renewal_reminder" if button == RESET_LITTER else "reset_trash_bag_reminder"
-    await hass.services.async_call("button", "press", {"entity_id": f"button.test_box_{entity_name}"}, blocking=True)
-    runtime_api.litter_action.assert_awaited_once_with("box-1", button, {"action": 2, "cycle_time": cycle})
+    with pytest.raises(HomeAssistantError, match="disabled pending live endpoint verification"):
+        await hass.services.async_call("button", "press", {"entity_id": f"button.test_box_{entity_name}"}, blocking=True)
+    runtime_api.litter_action.assert_not_awaited()
     runtime_api.endpoint_action.assert_not_awaited()
-
 
 @pytest.mark.usefixtures("runtime_api")
 async def test_unsupported_device_has_no_reminder_switch(hass: HomeAssistant) -> None:
@@ -211,19 +208,19 @@ async def test_unsupported_device_has_no_reminder_switch(hass: HomeAssistant) ->
 
 
 @pytest.mark.parametrize("reminder", REMINDERS)
-async def test_generic_reset_service_uses_current_interval_when_omitted(
+async def test_generic_reset_service_is_blocked(
     hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
 ) -> None:
-    """Existing reset service calls obtain the interval from the physical device."""
+    """An existing cycle does not justify sending unverified reset action codes."""
     action, _, cycle_key, _, cycle = reminder
     reset_action = "reset_litter_reminder" if action == ACTION_LITTER else "reset_garbage_bag_reminder"
     runtime_api.device_info.return_value[cycle_key] = cycle
     await setup(hass)
-    await hass.services.async_call(
-        "notty", "litter_box_action", {"user_device_id": "box-1", "action": reset_action}, blocking=True
-    )
-    runtime_api.litter_action.assert_awaited_once_with("box-1", reset_action, {"action": 2, "cycle_time": cycle})
-
+    with pytest.raises(HomeAssistantError, match="disabled pending live endpoint verification"):
+        await hass.services.async_call(
+            "notty", "litter_box_action", {"user_device_id": "box-1", "action": reset_action}, blocking=True
+        )
+    runtime_api.litter_action.assert_not_awaited()
 
 @pytest.mark.parametrize("reminder", REMINDERS)
 async def test_generic_reset_service_rejects_missing_interval(
@@ -234,7 +231,7 @@ async def test_generic_reset_service_rejects_missing_interval(
     reset_action = "reset_litter_reminder" if action == ACTION_LITTER else "reset_garbage_bag_reminder"
     runtime_api.device_info.return_value["remaining_days"] = 12
     await setup(hass)
-    with pytest.raises(HomeAssistantError, match="cycle_time"):
+    with pytest.raises(HomeAssistantError, match="disabled pending live endpoint verification"):
         await hass.services.async_call(
             "notty", "litter_box_action", {"user_device_id": "box-1", "action": reset_action}, blocking=True
         )
@@ -249,7 +246,7 @@ async def test_generic_interval_service_rejects_out_of_range_value(
     action, _, _, _, _ = reminder
     set_action = "set_litter_reminder_days" if action == ACTION_LITTER else "set_garbage_bag_reminder_days"
     await setup(hass)
-    with pytest.raises(HomeAssistantError, match="cycle_time"):
+    with pytest.raises(HomeAssistantError, match="disabled pending live endpoint verification"):
         await hass.services.async_call(
             "notty",
             "litter_box_action",
