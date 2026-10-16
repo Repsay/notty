@@ -61,10 +61,14 @@ string `id`, `display_name` and `offset` fields. The default output is a
 to display only up to ten matching entries and their exact server IDs,
 without exposing unrelated fields. Optional `--capture-raw
 probe-output/time-zones.private.json` saves a private, ignored local reply.
-The IDs and offsets have not yet been interpreted; in particular, IDs must
-not be invented from IANA names. Home Assistant does **not** expose
-device-timezone writes until the exact POST payload and effects on
-schedules have been established. See [issue #21](https://github.com/Repsay/notty/issues/21).
+Live validation found **141 entries** and confirmed that catalog IDs
+are **Windows timezone identifiers**. The Amsterdam entry is
+`W. Europe Standard Time` with catalog offset `01:00:00`.
+Unicode CLDR maps that ID to `Europe/Amsterdam` for the Netherlands;
+the catalog's offset is the standard-time label and must **not** be
+treated as the current DST-adjusted offset (CEST is UTC+02:00 in summer).
+The exact POST payload and its effect on existing schedules are still
+unverified, so Home Assistant does **not** expose timezone writes. See [issue #21](https://github.com/Repsay/notty/issues/21).
 
 For physical litter boxes that report `open_litter_remind` or `open_garbagebag_remind`, configuration switches enable (`action=1`) or disable (`action=2`) each reminder using the reported configured interval (`default_remaining_days`: 5–30 days; `garbage_bag_cycle_time`: 2–15 days). **Both operations require `cycle_time`.** Owner tests on a real NOTTY device confirmed that action 1 enables the reminder and restarts its countdown, while action 2 disables it without changing the configured cycle. Unknown state or missing/invalid cycle data prevents writes. **The litter-renewal interval selector is enabled for an already enabled reminder:** an owner test confirmed that `action=3` changes the configured litter interval and updates the remaining countdown (30 → 29 days). Selecting the same interval skips the write. Reminder reset buttons and the trash-bag interval selector remain blocked, as their live semantics have not been established.
 
