@@ -10,6 +10,8 @@ output remain local and ignored. Tests use synthetic data.
 | Child lock | `switch_key` | `/device/litter_box/set_key`: `switch`, `user_device_id` |
 | Do Not Disturb | `switch_dnd`, `led`, `dnd_begin_time`, `dnd_end_time` | `/device/litter_box/set_dnd`: `switch`, `led`, `dnd_begin_time`, `dnd_end_time`, `user_device_id` |
 | Automatic cleaning delay | `auto_delay`, `mode` | `/device/litter_box/set_auto_delay`: `delay` (integer minutes), `user_device_id` |
+| Litter renewal reminder | `open_litter_remind`, `default_remaining_days`, `remaining_days` | `/device/litter_box/set_litter_remind`: `action` (1 enable, 2 reset/change cycle, 3 disable); `cycle_time` for actions 1/2; `user_device_id` |
+| Trash bag reminder | `open_garbagebag_remind`, `garbage_bag_cycle_time`, `garbage_bag_remaining_days` | `/device/litter_box/set_garbage_bag_remind`: `action` (1 enable, 2 reset/change cycle, 3 disable); `cycle_time` for actions 1/2; `user_device_id` |
 
 The client currently adds a `device_id` alias alongside `user_device_id` for
 device actions. That is existing compatibility behavior, not a field established
@@ -54,9 +56,37 @@ them to writable choices. Its ID is `{physical_device_id}_setting_auto_delay`.
 The generic action service does not expose this endpoint yet; the select applies
 the mode restriction. API validation also rejects noninteger/out-of-range delays.
 
+## Reminder switches and resets (#18)
+
+The decoded `SettingController::setByProduct` branches select
+`/device/litter_box/set_litter_remind` at `0xccac2c`, reading
+`open_litter_remind` at `0xccac60`; for trash bags they select
+`/device/litter_box/set_garbage_bag_remind` at `0xccad00`, reading
+`open_garbagebag_remind` at `0xccad34`. The request builder models separate
+operations using `action=1` (enable), `action=2` (reset or change cycle),
+and `action=3` (disable). Synthetic contract tests assert the endpoints,
+action types and physical `user_device_id` targeting. The client also sends
+the pre-existing `device_id` alias; it is not part of this APK evidence.
+
+Enable (`action=1`) requires the current configured `cycle_time`; it is
+never replaced with the remaining-days countdown. The litter cycle is
+validated in the 5–30 day range and the garbage-bag cycle in the 2–15 day
+range. Disable (`action=3`) sends no `cycle_time`, avoiding changes to the
+reported interval. The switches reject unknown read-state values and skip
+no-op writes to avoid restarting a timer. Existing reset buttons and interval
+selectors remain distinct operations and use `action=2`. The generic reset
+service may fill a missing `cycle_time` from the device's reported configured
+cycle, but will reject missing or invalid data rather than guess a default.
+
+These are APK-backed request expectations, not proof of live server acceptance.
+Specifically, whether a reset affects a disabled reminder, whether the
+configured cycle survives enable/disable, and the actual countdown after
+each operation still require owner-observed validation. An HTTP success
+response or mocked request alone is not sufficient.
+
 ## Verification boundary
 
 Automated checks establish request construction, Home Assistant service behavior,
 state preservation, bounds and refresh behavior. They do not establish server
-acceptance or physical behavior. Issues #11, #12 and #16 remain open pending
+acceptance or physical behavior. Issues #11, #12, #16 and #18 remain open pending
 owner-observed live validation. No device commands are sent by this test suite.
