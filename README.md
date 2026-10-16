@@ -144,6 +144,20 @@ uv run scripts/compare_datapoints.py probe-output/before.json probe-output/after
 
 Reports contain JSON paths and observed types, not values. Review reports before sharing: backend-generated object keys can themselves contain identifiers. Raw captures contain personal/device data, are created with owner-only permissions, and must end in `.private.json`. Both that suffix and `probe-output/` are ignored by Git. Output files must be new, so captures are not accidentally overwritten. A top-level read failure yields exit 1 with partial results; authentication or local input/output failure yields exit 2. Optional endpoints omitted by the API client's fallbacks are not individually reported as errors.
 
+## Validate live behavior against the NOTTY app
+
+Separate feature scripts cover lock/DND, commands, settings/reminders, schedules,
+timezone, aliases, pets/associations, notifications, memos, firmware, statistics
+and authentication. They save private before/after evidence and compare values
+independently observed in the phone app. Emptying is blocked; reversible writes
+support an explicit restore-and-check test. See [commands and examples](docs/app-validation.md).
+
+`uv run python scripts/probe_weights.py --session-file probe-output/session.private.json`
+checks both cats' profile/daily weight fields and scoped litter-box statistics.
+Use private before/after captures to check changes after a normal visit. Unit
+codes, per-visit attribution and history remain unverified until compared with
+the app; API success alone is not validation.
+
 ## Development
 
 ```sh
