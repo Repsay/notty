@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import UTC, date, datetime, time
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import json
 import logging
 from typing import TypedDict, Unpack, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 
@@ -111,7 +111,14 @@ DND_TIME_FIELDS = ("dnd_begin_time", "dnd_end_time")
 
 
 def _dnd_clock(value: JsonValue) -> time:
-    """Validate a time-of-day without accepting offsets or seconds."""
+    """Validate a time-of-day without accepting offsets or seconds.
+
+    Returns:
+        A timezone-free clock value.
+
+    Raises:
+        NottyApiError: If the clock value is unavailable or invalid.
+    """
     try:
         parsed = time.fromisoformat(value) if isinstance(value, str) else None
     except ValueError:
@@ -129,6 +136,12 @@ def _dnd_shift_time(
 
     NOTTY returns recurring wall times with no calendar date, so a future
     DST-boundary offset cannot be inferred from the response itself.
+
+    Returns:
+        A clock time in the target timezone.
+
+    Raises:
+        NottyApiError: If the time or timezone is invalid.
     """
     parsed = _dnd_clock(value)
     try:
@@ -150,9 +163,16 @@ def _dnd_shift_time(
 
 
 def dnd_time_zone(current: JsonObject, *, fallback: str | None = None) -> str:
-    """Resolve the device's configured IANA zone, falling back only if absent."""
+    """Resolve the device's configured IANA zone, falling back only if absent.
+
+    Returns:
+        A validated IANA timezone name.
+
+    Raises:
+        NottyApiError: If no usable timezone is available.
+    """
     configured = current.get("time_zone_iana")
-    if configured is None or configured == "":
+    if not configured:
         configured = fallback
     if not isinstance(configured, str) or not configured:
         msg = "Cannot change Do Not Disturb without a NOTTY or fallback IANA timezone"
@@ -166,7 +186,11 @@ def dnd_time_zone(current: JsonObject, *, fallback: str | None = None) -> str:
 
 
 def dnd_local_time(value: JsonValue, time_zone: str, *, at: datetime | None = None) -> time:
-    """Convert API readback (apparent Shanghai clock) directly into HA time."""
+    """Convert API readback (apparent Shanghai clock) directly into HA time.
+
+    Returns:
+        The converted local clock value.
+    """
     return _dnd_shift_time(value, DND_READ_TIME_ZONE, time_zone, at=at)
 
 
@@ -182,6 +206,12 @@ def dnd_payload(
 
     Prefer NOTTY's time_zone_iana to any caller-provided fallback. HA edits
     are in HA's timezone and must be converted again to device-local time.
+
+    Returns:
+        A validated DND request containing device-local clock values.
+
+    Raises:
+        NottyApiError: If any preserved setting or zone is unknown or invalid.
     """
     device_zone = dnd_time_zone(current, fallback=time_zone)
     state = {**current, **changes}
@@ -207,6 +237,7 @@ def dnd_payload(
         msg = "Cannot enable Do Not Disturb with identical start/end times"
         raise NottyApiError(msg)
     return payload
+
 
 class ConnectionOptions(TypedDict, total=False):
     """Optional NOTTY account and session parameters."""
