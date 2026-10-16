@@ -111,6 +111,7 @@ class NottyTime(NottyEntity, TimeEntity):
             data = dnd_payload(
                 merged_device_data(self.block),
                 time_zone=self.coordinator.hass.config.time_zone,
+                input_time_zone=self.coordinator.hass.config.time_zone,
                 **{self.entity_description.key: _format_time(value)},
             )
         except NottyApiError as exc:
