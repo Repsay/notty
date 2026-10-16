@@ -61,6 +61,28 @@ def _get_coordinator(hass: HomeAssistant, user_device_id: str) -> NottyCoordinat
     raise HomeAssistantError(msg)
 
 
+def _validate_litter_interval_change(coordinator: NottyCoordinator, device_id: str, data: JsonObject) -> None:
+    """Reject untested reminder states and no-op cycle writes.
+
+    Raises:
+        NottyApiError: If the target is not an enabled reminder with a valid changing interval.
+    """
+    block = coordinator.data[device_id]
+    enabled = value_from_block(block, "open_litter_remind")
+    if not (enabled is True or (type(enabled) is int and enabled == 1) or enabled in ("1", "true")):
+        msg = "Litter interval changes require an enabled reminder"
+        raise NottyApiError(msg)
+    current_cycle = value_from_block(block, "default_remaining_days")
+    if isinstance(current_cycle, str) and current_cycle.isascii() and current_cycle.isdecimal():
+        current_cycle = int(current_cycle)
+    if type(current_cycle) is not int or current_cycle not in range(5, 31):
+        msg = "Litter interval changes require a valid configured cycle"
+        raise NottyApiError(msg)
+    if data["cycle_time"] == current_cycle:
+        msg = "Litter interval is unchanged; reset behavior remains unverified"
+        raise NottyApiError(msg)
+
+
 def _register_services(hass: HomeAssistant) -> None:
     if hass.services.has_service(DOMAIN, SERVICE_LITTER_BOX_ACTION):
         return
@@ -100,20 +122,7 @@ def _register_services(hass: HomeAssistant) -> None:
             if action in REMINDER_CYCLE_FIELDS:
                 action_data = reminder_payload(action, action_data)
                 if action == "set_litter_reminder_days":
-                    block = coordinator.data[user_device_id]
-                    enabled = value_from_block(block, "open_litter_remind")
-                    if not (enabled is True or (type(enabled) is int and enabled == 1) or enabled in ("1", "true")):
-                        msg = "Litter interval changes require an enabled reminder"
-                        raise NottyApiError(msg)
-                    current_cycle = value_from_block(block, "default_remaining_days")
-                    if isinstance(current_cycle, str) and current_cycle.isascii() and current_cycle.isdecimal():
-                        current_cycle = int(current_cycle)
-                    if type(current_cycle) is not int or current_cycle not in range(5, 31):
-                        msg = "Litter interval changes require a valid configured cycle"
-                        raise NottyApiError(msg)
-                    if action_data["cycle_time"] == current_cycle:
-                        msg = "Litter interval is unchanged; reset behavior remains unverified"
-                        raise NottyApiError(msg)
+                    _validate_litter_interval_change(coordinator, user_device_id, action_data)
             await coordinator.api.litter_action(user_device_id, action, action_data)
         except NottyApiError as err:
             raise HomeAssistantError(str(err)) from err
