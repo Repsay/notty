@@ -179,6 +179,6 @@ def test_bound_pet_devices_prefer_physical_user_device_id():
         ],
     }
     assert NottyApi._pet_litter_device_id(pet) == "9001"
-    assert NottyApi._pet_litter_device(pet | {"pet_id": 101})[
-        "_notty_litter_user_device_id"
-    ] == "9001"
+    assert (
+        NottyApi._pet_litter_device(pet | {"pet_id": 101})["_notty_litter_user_device_id"] == "9001"
+    )
