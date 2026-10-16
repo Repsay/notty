@@ -64,7 +64,6 @@ LITTER_ACTION_ENDPOINTS = {
     "horizontal_calibration": "/device/litter_box/horizontal_calibration",
     "confirm_upgrade": "/device/confirm_upgrade",
     "set_alias": "/device/set_alias",
-    "change_time_zone": "/device/change_time_zone",
     "clear_statistics": "/device/clear_statistics/",
 }
 SAFE_LITTER_ACTIONS = (
@@ -115,6 +114,58 @@ class NottyApiError(Exception):
 
 class NottyAuthError(NottyApiError):
     """Authentication failed."""
+
+
+def timezone_catalog(value: JsonValue) -> list[JsonObject]:
+    """Validate the live catalog without inventing IDs or DST offsets.
+
+    Returns:
+        Public catalog fields with exact server-provided strings.
+
+    Raises:
+        NottyApiError: If any required field or identifier is invalid.
+    """
+    if not isinstance(value, list) or not value:
+        msg = "NOTTY timezone catalog must be a nonempty array"
+        raise NottyApiError(msg)
+    rows: list[JsonObject] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            msg = "Invalid NOTTY timezone catalog record"
+            raise NottyApiError(msg)
+        row: JsonObject = {}
+        for key in ("id", "display_name", "offset"):
+            field = item.get(key)
+            if not isinstance(field, str) or not field.strip() or not field.isprintable():
+                msg = "Invalid NOTTY timezone catalog string"
+                raise NottyApiError(msg)
+            row[key] = field
+        identifier = str(row["id"])
+        if identifier in seen:
+            msg = "Duplicate NOTTY timezone catalog ID"
+            raise NottyApiError(msg)
+        seen.add(identifier)
+        rows.append(row)
+    return rows
+
+
+def timezone_payload(device_id: str, catalog_id: str, rows: list[JsonObject]) -> JsonObject:
+    """Use the selected Windows catalog ID in the APK's misnamed IANA field.
+
+    Returns:
+        Only the two fields serialized by the app.
+
+    Raises:
+        NottyApiError: If the physical ID or catalog membership is invalid.
+    """
+    if not device_id.isascii() or not device_id.isdecimal() or int(device_id) <= 0:
+        msg = "Timezone changes require a positive numeric physical device ID"
+        raise NottyApiError(msg)
+    if not any(row["id"] == catalog_id for row in rows):
+        msg = "Choose an exact ID from the current NOTTY timezone catalog"
+        raise NottyApiError(msg)
+    return {"user_device_id": int(device_id), "time_zone_iana": catalog_id}
 
 
 def reminder_payload(action: str, data: JsonObject) -> JsonObject:
@@ -441,7 +492,30 @@ class NottyTransport:
         return {"user_device_id": device_id, "device_id": device_id}
 
 
-class NottyApi(NottyTransport):
+class NottyTimezoneApi(NottyTransport):
+    """Explicit device timezone operations sharing the authenticated transport."""
+
+    async def time_zones(self) -> list[JsonObject]:
+        """Read the supported catalog on explicit request.
+
+        Returns:
+            Validated public timezone records.
+        """
+        return timezone_catalog(await self.request("GET", "/entity/get_time_zones"))
+
+    async def change_time_zone(self, device_id: str, catalog_id: str) -> JsonValue:
+        """Validate fresh catalog membership before one explicit timezone write.
+
+        Returns:
+            The server acknowledgement, not proof of schedule preservation.
+        """
+        rows = await self.time_zones()
+        return await self.request(
+            "POST", "/device/change_time_zone", data=timezone_payload(device_id, catalog_id, rows)
+        )
+
+
+class NottyApi(NottyTimezoneApi):
     """NOTTY account, litter-box and pet endpoints."""
 
     @staticmethod

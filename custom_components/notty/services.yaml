@@ -1,3 +1,27 @@
+device_time_zone:
+  name: Device time zone
+  description: List server-supported zones or explicitly change the device zone. Changes may reinterpret cleaning and DND schedule clocks. Catalog offsets describe standard time, not the current DST offset. Inspect the before/after response and verify in the app.
+  fields:
+    user_device_id:
+      required: true
+      selector:
+        text:
+    operation:
+      required: true
+      selector:
+        select:
+          options:
+            - list
+            - change
+    catalog_id:
+      description: Exact server ID from the list response, such as W. Europe Standard Time. Do not substitute an IANA name or numeric offset.
+      selector:
+        text:
+    confirm_schedule_change:
+      description: Required true for change, acknowledging that scheduled operations use the selected device local time.
+      selector:
+        boolean:
+
 litter_box_one_key:
   name: Litter box one-key action
   description: Run one of the NOTTY app one-key litter box actions.
