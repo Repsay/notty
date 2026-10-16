@@ -67,6 +67,8 @@ uv run scripts/probe_datapoints.py --output probe-output/before.json
 
 Alternatively set `NOTTY_EMAIL` plus `NOTTY_PASSWORD` or `NOTTY_VERIFICATION_CODE`. Set `NOTTY_REGION_CODE` if needed. Credentials are read from the environment, not command arguments. Never paste them into issues.
 
+Email verification codes are single-use. Add `--session-file probe-output/session.private.json` on the first run to save the established access token locally and reuse that file on later runs. The session file has owner-only permissions and is ignored by Git. It contains a token, user ID, email and region, never the verification code or password. An expired saved session needs a fresh login and a new session file. Saved sessions take precedence over email-code/password login; an explicit `NOTTY_ACCESS_TOKEN` takes precedence over the saved token.
+
 ```sh
 # Optional: save sensitive API responses locally for investigation.
 uv run scripts/probe_datapoints.py --device-id 123 \

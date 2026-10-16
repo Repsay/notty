@@ -59,7 +59,8 @@ async def collect(api, device_ids: list[str]) -> dict:
             continue
         device_id = device.get("user_device_id") or device.get("device_id") or device.get("id")
         device_type = " ".join(
-            str(device.get(k, "")) for k in ("device_type", "product_name", "model")
+            str(device.get(k, ""))
+            for k in ("device_type", "type", "category", "device_name", "product_name", "model")
         ).lower()
         if device_id and ("litter" in device_type or "sand" in device_type):
             ids.add(str(device_id))
@@ -84,6 +85,13 @@ def report(capture: dict) -> dict:
 
 
 async def run(args) -> int:
+    # Validate paths before consuming a one-time login code or making requests.
+    for path in (args.capture_raw, args.session_file):
+        if path and not path.name.endswith(".private.json"):
+            raise ValueError("Sensitive output filenames must end in .private.json")
+    for path in (args.output, args.capture_raw):
+        if path and path.exists():
+            raise FileExistsError(path)
     if args.from_file:
         capture = json.loads(args.from_file.read_text())
         if "responses" not in capture:
@@ -91,23 +99,40 @@ async def run(args) -> int:
     else:
         import aiohttp
 
+        saved_session = {}
+        if args.session_file and args.session_file.exists():
+            saved_session = json.loads(args.session_file.read_text())
+            email = os.environ.get("NOTTY_EMAIL")
+            if email and email.strip().casefold() != saved_session.get("email", "").casefold():
+                raise ValueError("Session belongs to a different email address")
         async with aiohttp.ClientSession() as session:
             api = load_api.NottyApi(
                 session,
-                token=os.environ.get("NOTTY_ACCESS_TOKEN"),
-                user_id=os.environ.get("NOTTY_USER_ID"),
-                email=os.environ.get("NOTTY_EMAIL"),
+                token=os.environ.get("NOTTY_ACCESS_TOKEN") or saved_session.get("access_token"),
+                user_id=os.environ.get("NOTTY_USER_ID") or saved_session.get("user_id"),
+                email=os.environ.get("NOTTY_EMAIL") or saved_session.get("email"),
                 password=os.environ.get("NOTTY_PASSWORD"),
                 verification_code=os.environ.get("NOTTY_VERIFICATION_CODE"),
-                region_code=os.environ.get("NOTTY_REGION_CODE", "NL"),
+                region_code=os.environ.get("NOTTY_REGION_CODE")
+                or saved_session.get("region_code", "NL"),
             )
             if not api.token:
                 await api.login()
+            if args.session_file and not args.session_file.exists():
+                # Save the established session before probing, so a failed read
+                # does not require another one-time email code.
+                write_json(
+                    args.session_file,
+                    {
+                        "access_token": api.token,
+                        "user_id": api.user_id,
+                        "email": api.email,
+                        "region_code": api.region_code,
+                    },
+                )
             capture = await collect(api, args.device_id)
     result = report(capture)
     if args.capture_raw:
-        if not args.capture_raw.name.endswith(".private.json"):
-            raise ValueError("Raw capture filename must end in .private.json")
         write_json(args.capture_raw, capture)
     if args.output:
         write_json(args.output, result)
@@ -126,6 +151,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path, help="Save value-free datapoint report")
     parser.add_argument(
         "--capture-raw", type=Path, help="Save sensitive responses to *.private.json"
+    )
+    parser.add_argument(
+        "--session-file",
+        type=Path,
+        help="Reuse or save login tokens locally in an owner-only *.private.json file",
     )
     args = parser.parse_args()
     try:
