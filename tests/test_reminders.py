@@ -152,9 +152,7 @@ async def test_enabling_requires_configured_interval(
     runtime_api.device_info.return_value.update({field: 0, "remaining_days": 12})
     await setup(hass)
     with pytest.raises(HomeAssistantError, match="cycle_time"):
-        await hass.services.async_call(
-            "switch", "turn_on", {"entity_id": f"switch.test_box_{entity}"}, blocking=True
-        )
+        await hass.services.async_call("switch", "turn_on", {"entity_id": f"switch.test_box_{entity}"}, blocking=True)
     runtime_api.litter_action.assert_not_awaited()
 
 
@@ -166,9 +164,7 @@ async def test_disabling_does_not_need_or_write_interval(
     action, field, _, entity, _ = reminder
     runtime_api.device_info.return_value.update({field: 1})
     await setup(hass)
-    await hass.services.async_call(
-        "switch", "turn_off", {"entity_id": f"switch.test_box_{entity}"}, blocking=True
-    )
+    await hass.services.async_call("switch", "turn_off", {"entity_id": f"switch.test_box_{entity}"}, blocking=True)
     runtime_api.litter_action.assert_awaited_once_with("box-1", action, {"action": 3})
 
 
@@ -183,9 +179,7 @@ async def test_unknown_state_cannot_be_written(
     await setup(hass)
     assert hass.states.get(f"switch.test_box_{entity}").state == EXPECTED_UNKNOWN
     with pytest.raises(HomeAssistantError, match="unknown current state"):
-        await hass.services.async_call(
-            "switch", service, {"entity_id": f"switch.test_box_{entity}"}, blocking=True
-        )
+        await hass.services.async_call("switch", service, {"entity_id": f"switch.test_box_{entity}"}, blocking=True)
     runtime_api.litter_action.assert_not_awaited()
 
 
@@ -226,14 +220,9 @@ async def test_generic_reset_service_uses_current_interval_when_omitted(
     runtime_api.device_info.return_value[cycle_key] = cycle
     await setup(hass)
     await hass.services.async_call(
-        "notty",
-        "litter_box_action",
-        {"user_device_id": "box-1", "action": reset_action},
-        blocking=True,
+        "notty", "litter_box_action", {"user_device_id": "box-1", "action": reset_action}, blocking=True
     )
-    runtime_api.litter_action.assert_awaited_once_with(
-        "box-1", reset_action, {"action": 2, "cycle_time": cycle}
-    )
+    runtime_api.litter_action.assert_awaited_once_with("box-1", reset_action, {"action": 2, "cycle_time": cycle})
 
 
 @pytest.mark.parametrize("reminder", REMINDERS)
@@ -247,10 +236,7 @@ async def test_generic_reset_service_rejects_missing_interval(
     await setup(hass)
     with pytest.raises(HomeAssistantError, match="cycle_time"):
         await hass.services.async_call(
-            "notty",
-            "litter_box_action",
-            {"user_device_id": "box-1", "action": reset_action},
-            blocking=True,
+            "notty", "litter_box_action", {"user_device_id": "box-1", "action": reset_action}, blocking=True
         )
     runtime_api.litter_action.assert_not_awaited()
 
