@@ -74,6 +74,92 @@ It does **not** restore the original desired `07:00–22:00` schedule:
 the user must set that schedule separately in the official NOTTY app.
 Future DST behavior and cross-region devices remain unverified.
 
+## Device timezone catalog and setting (#21)
+
+The NOTTY app's timezone controller refers to
+`/entity/get_time_zones` (catalog read; APK address `0xc0d018`) and
+`/device/change_time_zone` (setting write; `0xcd6570`).
+
+**Owner-observed live catalog on 2026-10-16:** GET
+`/entity/get_time_zones` succeeded and returned **141 entries** in
+a top-level array. Each entry contains `id`, `display_name`, and
+`offset`, all **strings**. An Amsterdam entry was:
+
+```json
+{
+  "id": "W. Europe Standard Time",
+  "display_name": "(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna",
+  "offset": "01:00:00"
+}
+```
+
+`id` is a **Windows timezone identifier**, not an IANA name or numeric
+code. Unicode CLDR windowsZones maps this Windows ID to `Europe/Amsterdam`
+for territory **NL** (global default `Europe/Berlin`); country context is
+therefore necessary for an exact regional IANA mapping. The catalog's
+`01:00:00` is a standard-offset label, **not evidence of a live DST offset**:
+Amsterdam is UTC+02:00 on 2026-10-16 and UTC+01:00 in winter. Do not
+use this field alone for scheduling or HA↔NOTTY conversions.
+
+**Owner live device inspection, also 2026-10-16:** both the account
+device listing and `/device/litter_box/get_info` returned
+`"time_zone_iana": "Europe/Amsterdam"` for the same device. This
+confirms that this device stores/reports its selected zone in **IANA**
+format even though the selection catalog uses **Windows** identifiers.
+There was no separate `time_zone_id` in either inspected response.
+Keep three concepts distinct:
+
+- **Catalog choice:** Windows ID `W. Europe Standard Time`.
+- **Configured device zone:** IANA `Europe/Amsterdam`.
+- **Home Assistant zone:** its own configurable IANA timezone; the
+  cloud's apparent Shanghai DND readback clock remains a separate
+  hypothesis requiring broader validation.
+
+The setter is now traced end-to-end in the APK: the view reads the selected
+row’s `id` at `0xcd6280` and passes that string to `confirmTimeZone` at
+`0xcd62e8`. The captured string is inserted under `time_zone_iana` at
+`0xcd6534` (shared closure `0xa36c5c` returns context field `0x13`).
+The physical ID closure `0xcc13a4` boxes controller field `0x27` as an
+integer at `0xcc13bc`. The two-field request is POSTed at `0xcd657c`.
+Thus the misnamed `time_zone_iana` request field carries the Windows
+catalog ID, while device readback uses IANA. This is static app evidence;
+server acceptance and schedule behavior remain unverified. The
+integration's existing DND builder can use the verified device IANA
+readback without Windows conversion; it must not use catalog offsets.
+
+The opt-in `scripts/probe_timezones.py` performs **one read-only GET**
+and prints only schema paths, types and total entry count by default.
+Use `--find Amsterdam` to show at most ten matching `id`,
+`display_name` and `offset` triples, with all other keys excluded;
+`--capture-raw` remains optional and stores raw replies only in
+local `*.private.json` files. The public integration does **not**
+poll the catalog or infer timezone IDs from IANA names. The explicit
+`notty.device_time_zone` action lists the validated catalog and can submit
+one selected catalog ID with `confirm_schedule_change: true`.
+The optional `--device-id` argument adds two read-only calls (account
+device listing and the selected litter-box info) and returns only
+whitelisted timezone fields; it never includes device identifiers,
+aliases or unrelated account fields.
+
+The existing dynamic `time_zone_iana` sensor gets read-only diagnostic
+attributes: validated device IANA zone, current device/HA UTC offsets,
+their difference, and the **assumed** API event clock basis
+(`Asia/Shanghai`). It preserves the existing sensor identity. These values
+do not imply that the app's timezone-selection catalog has been decoded.
+Offsets are instant-dependent: European and US DST transitions differ,
+so unit tests compare summer, interstitial transition and winter dates.
+
+Timezone changes capture DND fields and complete cleaning-plan readback
+before and after one write. Unreadable baseline or mismatched identity
+blocks the operation. A directly reported matching Windows ID is a no-op;
+we do not infer equality from an IANA name. Differences are reported without
+automatic retries, rollback or rewriting clock fields. Acknowledged writes
+with failed readback are distinguished from read failures before writing.
+The app warns at `0xcd63d0` that operations use the selected device local
+time: unchanged clock strings therefore do not prove unchanged firing times.
+Issue #21 remains open for an owner-selected live change, app confirmation,
+and schedule/DST preservation validation. No timezone was changed here.
+
 ## Automatic cleaning delay (#16)
 
 `SettingController` builds the delay picker at `0xc0b05c`: an unboxed integer loop

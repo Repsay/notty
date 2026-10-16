@@ -47,6 +47,45 @@ Automatic cleaning delay is available as a configuration select (1–15 minutes)
 
 DND changes preserve the reported LED setting and both time boundaries. The cloud has been observed returning DND wall times shifted by the Shanghai–Amsterdam UTC offset: echoing those values on write shifts the configured schedule again. This integration converts DND reads from the observed Asia/Shanghai clock basis to the Home Assistant timezone for display; writes send times in the configured NOTTY device `time_zone_iana` (falling back to Home Assistant's timezone only when NOTTY does not report a zone). Time edits are converted from HA time to the device zone. Invalid reported timezones and missing/invalid settings are rejected. The live behavior across DST transitions and other NOTTY regions still needs verification; see [APK contracts](docs/apk-contracts.md). Enabling DND with identical start and end times is rejected.
 
+The device's existing `time_zone_iana` sensor now also shows its validated
+IANA-zone status and current UTC offset alongside the Home Assistant time zone,
+their offset difference, and the **assumed** NOTTY API clock source
+(`Asia/Shanghai`). This is **read-only** and preserves the sensor's existing
+unique ID. Offsets account for the date and daylight saving time and may differ
+even when the zones' names do not change. An unknown device zone is never
+silently replaced by the HA zone in the diagnostic sensor.
+
+To inspect NOTTY's supported device-timezone catalog without changing the device,
+run `uv run scripts/probe_timezones.py --session-file probe-output/session.pr30.private.json`.
+Add `--device-id 52963` to also read **only timezone-related fields**
+from the account's device listing and litter-box info. The report excludes
+device IDs, aliases, credentials and unrelated device fields, allowing us to
+check whether NOTTY reports IANA IDs to HA while using Windows IDs in the
+timezone selection catalog.
+The read-only GET is confirmed on an owner's device: it returns an array of
+string `id`, `display_name` and `offset` fields. The default output is a
+**value-free schema inventory and entry count**. Add `--find Amsterdam`
+to display only up to ten matching entries and their exact server IDs,
+without exposing unrelated fields. Optional `--capture-raw
+probe-output/time-zones.private.json` saves a private, ignored local reply.
+Live validation found **141 entries** and confirmed that catalog IDs
+are **Windows timezone identifiers**. The Amsterdam catalog entry is
+`W. Europe Standard Time` with standard offset `01:00:00`.
+Both the device listing and litter-box info instead report
+`time_zone_iana: Europe/Amsterdam` for this owner device.
+The IANA value is suitable for DST-aware runtime conversions (CEST
+is UTC+02:00 in summer); the catalog offset is **not**.
+Unicode CLDR maps this Windows ID to `Europe/Amsterdam` for NL,
+but the exact POST setter payload and its effect on schedules remain
+unverified live. The explicit `notty.device_time_zone` action now supports
+`operation: list` and `operation: change`. List returns current IANA/Windows
+readback, server catalog choices and separate HA/server clock context. Change
+requires an exact `catalog_id` from that list and `confirm_schedule_change: true`.
+It sends the APK contract (the Windows ID in `time_zone_iana`) after fresh catalog
+validation. Capture and inspect its before/after response: device-local schedule
+interpretation may change even when raw clock strings stay the same. It never
+automatically rewrites DND or cleaning schedules. See [issue #21](https://github.com/Repsay/notty/issues/21).
+
 For physical litter boxes that report `open_litter_remind` or `open_garbagebag_remind`, configuration switches enable (`action=1`) or disable (`action=2`) each reminder using the reported configured interval (`default_remaining_days`: 5–30 days; `garbage_bag_cycle_time`: 2–15 days). **Both operations require `cycle_time`.** Owner tests on a real NOTTY device confirmed that action 1 enables the reminder and restarts its countdown, while action 2 disables it without changing the configured cycle. Unknown state or missing/invalid cycle data prevents writes. **The litter-renewal interval selector is enabled for an already enabled reminder:** an owner test confirmed that `action=3` changes the configured litter interval and updates the remaining countdown (30 → 29 days). Selecting the same interval skips the write. Reminder reset buttons and the trash-bag interval selector remain blocked, as their live semantics have not been established.
 
 Two actions are also available in **Developer tools → Actions**: `notty.litter_box_one_key` and `notty.litter_box_action`. Their schemas are in [services.yaml](custom_components/notty/services.yaml). They require the **physical `user_device_id`**, not a pet ID. One-key codes are now traced from the APK: **clean=1, empty=2, level=3**. The former clean=0, level=1 and sterilize=3 mappings were incorrect. The unsupported sterilize button/action has been removed. Review existing automations, especially numeric one-key values: `1` cleans and `3` levels. Static request evidence does not confirm physical behavior; validate each operation individually before relying on automations.
