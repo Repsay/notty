@@ -138,3 +138,25 @@ async def test_live_shape_pet_binding_survives_merge(hass, runtime_api):
         assert block["device"]["_notty_litter_user_device_id"] == "9001"
         assert block["info"]["litter_user_device_id"] == "9001"
         assert block["info"]["pet_devices"][0]["user_device_id"] == 9001
+
+
+async def test_mode_1_is_auto_and_mode_changes_are_blocked(hass, runtime_api):
+    """Raw mode=1 was verified as Auto in the actual NOTTY mobile app."""
+    from custom_components.notty.select import SELECTS
+
+    modes = next(description for description in SELECTS if description.key == "mode")
+    assert modes.value_options == {1: "Auto"}
+
+    await setup(hass)
+    mode = hass.states.get("select.test_box_mode")
+    assert mode is not None
+    assert mode.state == "Auto"
+    assert mode.attributes["options"] == ["Auto"]
+    with pytest.raises(HomeAssistantError, match="disabled until remaining mode codes"):
+        await hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": "select.test_box_mode", "option": "Auto"},
+            blocking=True,
+        )
+    runtime_api.litter_action.assert_not_awaited()
