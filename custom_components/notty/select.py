@@ -9,10 +9,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from custom_components.notty.api import LITTER_MODES, JsonValue
+from custom_components.notty.api import LITTER_MODES, SCREEN_LANGUAGES, JsonValue
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.entity import NottyEntity, value_from_block
 from custom_components.notty.models import DeviceBlock, DeviceData, NottyConfigEntry
+from custom_components.notty.pet_entities import NottyPetSex, add_pet_entities
 
 DEVICE_TYPE_LITTER_BOX = "litter_box"
 SOURCE_PET = "pet"
@@ -51,7 +52,12 @@ SELECTS = (
         fallback_key="lb_mode",
     ),
     NottySelectDescription(
-        key="language", name="Screen Language", action="set_language", field="language", value_options={1: "English"}
+        key="language",
+        name="Screen Language",
+        action="set_language",
+        field="language",
+        value_options=SCREEN_LANGUAGES,
+        entity_category=EntityCategory.CONFIG,
     ),
     NottySelectDescription(
         key="default_remaining_days",
@@ -78,6 +84,7 @@ async def async_setup_entry(  # ruff: ignore[unused-async] -- Home Assistant req
 ) -> None:
     """Async setup entry."""
     coordinator = entry.runtime_data
+    add_pet_entities(entry, async_add_entities, NottyPetSex)
     entities: list[NottySelect] = []
     for device_id, block in coordinator.data.items():
         if block.get("type") != DEVICE_TYPE_LITTER_BOX:
@@ -161,9 +168,14 @@ class NottySelect(NottyEntity, SelectEntity):
         Returns:
             bool: The resulting available.
         """
-        if self.entity_description.key == FIELD_LITTER_INTERVAL:
-            state = value_from_block(self.block, FIELD_LITTER_ENABLED)
-            cycle = _as_int(value_from_block(self.block, FIELD_LITTER_INTERVAL))
+        if self.entity_description.key in {FIELD_LITTER_INTERVAL, "garbage_bag_cycle_time"}:
+            enabled_field = (
+                FIELD_LITTER_ENABLED
+                if self.entity_description.key == FIELD_LITTER_INTERVAL
+                else "open_garbagebag_remind"
+            )
+            state = value_from_block(self.block, enabled_field)
+            cycle = _as_int(value_from_block(self.block, self.entity_description.key))
             return (
                 super().available
                 and _litter_reminder_enabled(state)
@@ -200,11 +212,8 @@ class NottySelect(NottyEntity, SelectEntity):
         if self.entity_description.key == FIELD_AUTO_DELAY and not self.available:
             msg = "NOTTY cleaning delay can only be changed in Auto mode with current device data"
             raise HomeAssistantError(msg)
-        if self.entity_description.key == FIELD_LITTER_INTERVAL and not self.available:
-            msg = "NOTTY litter interval changes require an enabled reminder and a valid configured cycle"
-            raise HomeAssistantError(msg)
-        if self.entity_description.key == FIELD_MODE:
-            msg = "NOTTY mode changes remain disabled pending schedule prerequisites and live validation"
+        if self.entity_description.key in {FIELD_LITTER_INTERVAL, "garbage_bag_cycle_time"} and not self.available:
+            msg = "NOTTY interval changes require an enabled reminder and a valid configured cycle"
             raise HomeAssistantError(msg)
         reverse = {label: value for value, label in self.entity_description.value_options.items()}
         if option not in reverse:
@@ -212,7 +221,7 @@ class NottySelect(NottyEntity, SelectEntity):
                 msg = "NOTTY cleaning delay must be between 1 and 15 minutes"
                 raise HomeAssistantError(msg)
             return
-        if self.entity_description.key == FIELD_LITTER_INTERVAL and option == self.current_option:
+        if option == self.current_option:
             # An identical interval might reset an elapsed countdown; this has not been verified.
             return
         await self.coordinator.api.litter_action(

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+from homeassistant.components.update import UpdateEntityFeature
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -41,7 +42,7 @@ async def test_firmware_entity_reports_app_fields(hass: HomeAssistant, runtime_a
     assert entity.attributes["latest_version"] == EXPECTED_LATEST
     assert entity.attributes["release_summary"] == CONTRACT["offered"]["firmware_desc"]
     assert entity.attributes["task_status"] == CONTRACT["offered"]["task_status"]
-    assert entity.attributes["supported_features"] == 0
+    assert not entity.attributes["supported_features"] & UpdateEntityFeature.INSTALL
     assert entity.attributes.get("update_percentage") is None
     assert PRIVATE_VALUE not in json.dumps(dict(entity.attributes))
     assert FIELD_TASK_ID not in entity.attributes

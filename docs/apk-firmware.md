@@ -37,9 +37,9 @@ explicit offline flags or missing/malformed metadata. It reads the current raw
 upgrade response rather than stale flattened version summaries. Release notes
 are summarized to Home Assistant's 255-character limit. Only raw `task_status`
 is added as a custom attribute; task IDs and arbitrary backend fields are not
-copied into the entity. Installation and progress features are not advertised.
+copied into the entity. Installation eligibility is computed from current metadata; full notes are exposed in the update dialog.
 
-## Confirmation request traced, but not enabled
+## Explicit confirmation of a fresh task
 
 `confirmUpdate` (`0xcc5264`) builds only `task_id` (`0xcc52f0`) and
 `user_device_id` (`0xcc5314`), then POSTs `/device/confirm_upgrade` at `0xcc5338`.
@@ -47,8 +47,7 @@ Closure `0xcc548c` gets the current task observable; `0xcc5224` boxes the physic
 ID as an integer. The success callback sets an app-local busy flag at `0xcc53e4`.
 This is not independent evidence of a completed installation. The task-ID type,
 current-task eligibility, supported models and behavior during failures still
-need live verification. The unchecked generic `confirm_upgrade` API action has
-been removed; the firmware entity never invokes installation.
+need live verification. The unchecked generic `confirm_upgrade` API action remains removed. The update entity supports an explicit install after fresh owned-device and offered-task checks, preserving the server task ID type and using an integer physical ID. An absent/busy/unknown task or a requested version different from the offer is rejected. No automatic installation or request replay is implemented.
 
 ## Progress is a separate event flow
 
@@ -71,8 +70,7 @@ version. Later version readback remains authoritative.
 
 Synthetic tests cover version availability, explicit empty versus missing targets,
 opaque version labels, task failures/unknown states, metadata loss/recovery, late
-discovery, offline devices, lifecycle, bounded notes and blocked installation.
+discovery, offline devices, lifecycle, bounded notes, exact confirmation payloads and rejected absent/busy/unknown tasks.
 They do not verify production API payloads or device firmware behavior. No model
 has yet been validated for this new entity; no firmware update or cloud write was
-performed during development. #22 remains open for model validation, installation
-and progress work after their contracts are established.
+performed during development. #22 remains open for model validation and the separate realtime progress lifecycle. The HA entity tracks only its own requested target in memory until installed-version readback or a reported failure/cancellation; no measured percentage or restart persistence is claimed.

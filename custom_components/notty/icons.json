@@ -29,6 +29,12 @@
       },
       "switch_dnd": {
         "default": "mdi:moon-waning-crescent"
+      },
+      "pet_neutered": {
+        "default": "mdi:medical-bag"
+      },
+      "notification_category": {
+        "default": "mdi:bell"
       }
     },
     "select": {
@@ -46,6 +52,9 @@
       },
       "auto_delay": {
         "default": "mdi:timer-cog-outline"
+      },
+      "pet_sex": {
+        "default": "mdi:gender-male-female"
       }
     },
     "time": {
@@ -64,11 +73,19 @@
     "text": {
       "cloud_alias": {
         "default": "mdi:form-textbox"
+      },
+      "pet_name": {
+        "default": "mdi:cat"
       }
     },
     "update": {
       "firmware": {
         "default": "mdi:chip"
+      }
+    },
+    "date": {
+      "pet_birthday": {
+        "default": "mdi:cake-variant"
       }
     }
   },
@@ -81,6 +98,24 @@
     },
     "litter_box_schedule": {
       "service": "mdi:calendar-clock"
+    },
+    "device_time_zone": {
+      "service": "mdi:earth"
+    },
+    "pet_profile": {
+      "service": "mdi:cat"
+    },
+    "pet_association": {
+      "service": "mdi:link-variant"
+    },
+    "pet_memo": {
+      "service": "mdi:notebook-edit-outline"
+    },
+    "notification_preferences": {
+      "service": "mdi:bell-cog"
+    },
+    "clear_statistics": {
+      "service": "mdi:chart-box-outline"
     }
   }
 }

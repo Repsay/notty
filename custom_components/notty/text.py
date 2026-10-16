@@ -14,6 +14,7 @@ from custom_components.notty.const import DOMAIN
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.entity import NottyEntity
 from custom_components.notty.models import DeviceBlock, DeviceData, NottyConfigEntry
+from custom_components.notty.pet_entities import NottyPetName, add_pet_entities
 
 DEVICE_TYPE_LITTER_BOX = "litter_box"
 SOURCE_PET = "pet"
@@ -37,6 +38,7 @@ async def async_setup_entry(  # ruff: ignore[unused-async] -- Home Assistant req
 ) -> None:
     """Expose cloud-name configuration only for physical litter boxes."""
     coordinator = entry.runtime_data
+    add_pet_entities(entry, async_add_entities, NottyPetName)
     async_add_entities(
         NottyCloudAlias(coordinator, device_id, block["device"])
         for device_id, block in coordinator.data.items()

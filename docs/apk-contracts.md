@@ -223,12 +223,7 @@ with a supplied, validated `cycle_time` in the 5–30 day range. Only
 Selecting the existing interval does not write, since the effect of an
 unchanged-cycle action 3 on a partially elapsed countdown is unverified.
 
-`reset_litter_reminder`, `reset_garbage_bag_reminder`, and
-`set_garbage_bag_reminder_days` remain **blocked at the API
-boundary**, including their HA reset buttons, the trash-bag interval
-selector and generic service. The original `action=2` assumption
-disabled reminders, and bag action 3 has not been tested live.
-
+Further static tracing of the Reset label in `SettingController` (`0xcccb30`, action insertion `0xcccc68`) establishes action **3** with the configured cycle for both reminder types. Reset buttons and the trash-bag interval selector now use this contract, with fresh enabled-state/cycle validation. Reset must retain the existing cycle; interval changes skip same-value writes. Same-cycle reset and trash-bag action 3 have **not** been exercised live. The original action-2 reset assumption remains incorrect. See [additional APK evidence](apk-pet-maintenance.md).
 
 ## Verification boundary
 

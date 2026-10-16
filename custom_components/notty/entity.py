@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from homeassistant.helpers.device_registry import DeviceInfo, async_get
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -104,6 +106,9 @@ def title_from_key(key: str) -> str:
     return aliases.get(key, key.replace("_", " ").title())
 
 
+FIELD_VIA_DEVICE_ID = "via_device_id"
+
+
 class NottyEntity(CoordinatorEntity[NottyCoordinator]):
     _attr_has_entity_name = True
 
@@ -126,7 +131,10 @@ class NottyEntity(CoordinatorEntity[NottyCoordinator]):
             else:
                 parent = registry.async_get_device(identifiers={(DOMAIN, str(parent_device_id))})
             if parent is not None:
-                device_info["via_device_id"] = parent.id
+                if FIELD_VIA_DEVICE_ID in DeviceInfo.__annotations__:
+                    device_info["via_device_id"] = parent.id
+                else:
+                    device_info.update(cast("DeviceInfo", {"via_device": (DOMAIN, str(parent_device_id))}))
         self._attr_device_info = device_info
 
     @property
@@ -146,3 +154,15 @@ class NottyEntity(CoordinatorEntity[NottyCoordinator]):
             bool: The resulting available.
         """
         return super().available and self.device_id in (self.coordinator.data or {})
+
+    def update_device_name(self, name: str) -> None:
+        """Refresh the integration-provided name while preserving the HA user override."""
+        if self.coordinator.entry_id is None:
+            return
+        registry = async_get(self.hass)
+        if hasattr(registry, "async_get_device_by_identifier"):
+            device = registry.async_get_device_by_identifier((DOMAIN, self.device_id), self.coordinator.entry_id)
+        else:
+            device = registry.async_get_device(identifiers={(DOMAIN, self.device_id)})
+        if device is not None and device.name != name:
+            registry.async_update_device(device.id, name=name)

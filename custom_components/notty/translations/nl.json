@@ -32,6 +32,13 @@
     "select": {
       "auto_delay": {
         "name": "Automatische reinigingsvertraging"
+      },
+      "pet_sex": {
+        "name": "Geslacht",
+        "state": {
+          "male": "Mannetje",
+          "female": "Vrouwtje"
+        }
       }
     },
     "switch": {
@@ -40,16 +47,30 @@
       },
       "open_garbagebag_remind": {
         "name": "Herinnering afvalzak vervangen"
+      },
+      "pet_neutered": {
+        "name": "Gecastreerd"
+      },
+      "notification_category": {
+        "name": "{category}-meldingen"
       }
     },
     "text": {
       "cloud_alias": {
         "name": "Cloudnaam"
+      },
+      "pet_name": {
+        "name": "Naam"
       }
     },
     "update": {
       "firmware": {
         "name": "Firmware"
+      }
+    },
+    "date": {
+      "pet_birthday": {
+        "name": "Geboortedatum"
       }
     }
   },
@@ -71,6 +92,81 @@
         "time": {
           "name": "NOTTY-planklok",
           "description": "Vereist voor aanmaken en wijzigen. Gebruik HH:MM volgens de NOTTY-planklok, zonder tijdzoneconversie."
+        }
+      }
+    },
+    "pet_profile": {
+      "name": "Huisdierprofiel",
+      "description": "Bekijk of wijzig een bestaand huisdier waarvan je eigenaar bent. Ondersteunde velden: name, birthday, sex, is_sterilization en breed_id. Gewicht, eenheden, afbeeldingen en koppelingen blijven behouden.",
+      "fields": {
+        "pet_id": {
+          "name": "Huisdier-ID"
+        },
+        "operation": {
+          "name": "Bewerking"
+        },
+        "changes": {
+          "name": "Wijzigingen"
+        }
+      }
+    },
+    "pet_association": {
+      "name": "Huisdier koppelen",
+      "description": "Bekijk, koppel of ontkoppel één huisdier van een kattenbak waarvan je eigenaar bent. Andere koppelingen blijven behouden.",
+      "fields": {
+        "user_device_id": {
+          "name": "Fysiek kattenbak-ID"
+        },
+        "operation": {
+          "name": "Bewerking"
+        },
+        "pet_id": {
+          "name": "Huisdier-ID"
+        }
+      }
+    },
+    "pet_memo": {
+      "name": "Huisdiernotitie",
+      "description": "Bekijk, maak of wijzig tekstnotities. Wijzigen vereist eigenaarschap. Velden: title, content, date (YYYY-MM-DD HH:MM in de NOTTY-notitieklok) en remind (booleaans).",
+      "fields": {
+        "pet_id": {
+          "name": "Huisdier-ID"
+        },
+        "operation": {
+          "name": "Bewerking"
+        },
+        "memo_id": {
+          "name": "Notitie-ID"
+        },
+        "changes": {
+          "name": "Wijzigingen"
+        }
+      }
+    },
+    "notification_preferences": {
+      "name": "NOTTY-meldingsvoorkeuren",
+      "description": "Bekijk of blokkeer meldingscategorieën voor alle kattenbakken van dit NOTTY-account. De kattenbak selecteert het account. Dit zijn geen Home Assistant-meldingen.",
+      "fields": {
+        "user_device_id": {
+          "name": "Fysiek kattenbak-ID"
+        },
+        "operation": {
+          "name": "Bewerking"
+        },
+        "message_type_id": {
+          "name": "Meldingscategorie-ID"
+        }
+      }
+    },
+    "clear_statistics": {
+      "name": "Apparaatstatistieken wissen",
+      "description": "Verwijder definitief de cloudstatistieken van de gekozen kattenbak. Dit kan niet ongedaan worden gemaakt. Sensoren worden daarna vernieuwd.",
+      "fields": {
+        "user_device_id": {
+          "name": "Fysiek kattenbak-ID"
+        },
+        "confirm_irreversible": {
+          "name": "Onomkeerbaar wissen bevestigen"
         }
       }
     }

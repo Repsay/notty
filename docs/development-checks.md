@@ -18,13 +18,13 @@ The HTTP boundary uses a recursive JSON value type. Device blocks and config-ent
 runtime data have explicit types. Casts describe framework, JSON-decoder and CLI
 boundaries; response parsers narrow their values before accessing rows or fields.
 The schema adapter uses Probatio on newer Home Assistant versions and falls back
-to Voluptuous on older versions. The test environment exercises the installed
-Home Assistant version; an older installation still needs compatibility testing.
+to Voluptuous on older versions. CI exercises the locked development Home Assistant version and the declared minimum 2026.3.0. The minimum job uses the nearest historical test plugin (0.13.317, normally pinned to 2026.3.1) with an explicit HA 2026.3.0 override. Registry linking uses the version-supported parent-device field and lookup API.
 
 ## Narrow exceptions
 
 - Home Assistant requires coroutine entry points even when a platform's setup is
   synchronous. Those functions alone have local `RUF029` exceptions.
+- The update installation callback defines `backup` as a positional Boolean; only that framework signature has a Boolean-argument lint exception.
 - Home Assistant requires the platform filenames `select.py` and `time.py`. Those
   two files alone have `A005` exceptions.
 - `CONF_REFRESH_TOKEN` is a schema key, not a credential. Its declaration alone has

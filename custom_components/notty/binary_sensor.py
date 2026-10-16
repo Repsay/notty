@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from homeassistant.components.binary_sensor import BinarySensorEntity
-from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.entity import NottyEntity, merged_device_data, title_from_key, value_from_block
 from custom_components.notty.models import DeviceBlock, DeviceData, NottyConfigEntry
+
+if TYPE_CHECKING:
+    from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
+else:
+    try:
+        from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
+    except ModuleNotFoundError:
+        from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 
 BINARY_KEYS = {
     "online",
