@@ -36,7 +36,7 @@ SWITCHES = (
         action="set_litter_remind",
         field="action",
         on_value=1,
-        off_value=3,
+        off_value=2,
         entity_category=EntityCategory.CONFIG,
     ),
     NottySwitchDescription(
@@ -45,7 +45,7 @@ SWITCHES = (
         action="set_garbage_bag_remind",
         field="action",
         on_value=1,
-        off_value=3,
+        off_value=2,
         entity_category=EntityCategory.CONFIG,
     ),
 )
