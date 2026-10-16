@@ -75,7 +75,14 @@ The IANA value is suitable for DST-aware runtime conversions (CEST
 is UTC+02:00 in summer); the catalog offset is **not**.
 Unicode CLDR maps this Windows ID to `Europe/Amsterdam` for NL,
 but the exact POST setter payload and its effect on schedules remain
-unverified, so Home Assistant does **not** expose timezone writes. See [issue #21](https://github.com/Repsay/notty/issues/21).
+unverified live. The explicit `notty.device_time_zone` action now supports
+`operation: list` and `operation: change`. List returns current IANA/Windows
+readback, server catalog choices and separate HA/server clock context. Change
+requires an exact `catalog_id` from that list and `confirm_schedule_change: true`.
+It sends the APK contract (the Windows ID in `time_zone_iana`) after fresh catalog
+validation. Capture and inspect its before/after response: device-local schedule
+interpretation may change even when raw clock strings stay the same. It never
+automatically rewrites DND or cleaning schedules. See [issue #21](https://github.com/Repsay/notty/issues/21).
 
 For physical litter boxes that report `open_litter_remind` or `open_garbagebag_remind`, configuration switches enable (`action=1`) or disable (`action=2`) each reminder using the reported configured interval (`default_remaining_days`: 5–30 days; `garbage_bag_cycle_time`: 2–15 days). **Both operations require `cycle_time`.** Owner tests on a real NOTTY device confirmed that action 1 enables the reminder and restarts its countdown, while action 2 disables it without changing the configured cycle. Unknown state or missing/invalid cycle data prevents writes. **The litter-renewal interval selector is enabled for an already enabled reminder:** an owner test confirmed that `action=3` changes the configured litter interval and updates the remaining countdown (30 → 29 days). Selecting the same interval skips the write. Reminder reset buttons and the trash-bag interval selector remain blocked, as their live semantics have not been established.
 

@@ -26,9 +26,13 @@ Start with read-only captures. This checklist is for the device owner; the autom
    `time_zone_iana: Europe/Amsterdam` in **both** responses; the
    catalog uses `W. Europe Standard Time`. The device's current
    zone therefore needs no Windows-to-IANA conversion for runtime
-   DND reads/writes. The timezone **setter payload** remains unknown,
-   so no `change_time_zone` write is enabled without verifying it
-   separately against the app contract.
+   DND reads/writes. The setter is now traced: the Windows catalog ID is
+   sent under `time_zone_iana`, with an integer physical ID. Use
+   `notty.device_time_zone` with `operation: list` first. An explicitly
+   chosen `operation: change` also requires `catalog_id` and
+   `confirm_schedule_change: true`. Inspect the returned before/after
+   DND and plan snapshots and verify the app timezone and actual firing
+   times across DST/date boundaries. No timezone change has been live-tested.
 7. Only after read behavior is confirmed, verify each command individually using normal device precautions. Record the action, request field/code, resulting physical behavior, and reported state. Do not run a command sweep.
    - For issue #18, action 1 (with configured cycle) has been live-verified to enable/restart a countdown, and action 2 (with configured cycle) disables both reminder types. Action 3 without cycle is rejected. Action 3 with a changed cycle (30 → 29 days) is accepted for **litter renewal** and updated both the configured cycle and remaining days. Do **not** use action 2 to reset a reminder. Keep reset buttons and **trash-bag interval adjustment** disabled until their contracts are tested separately, one explicitly confirmed request at a time, with before/after enabled state, configured days, remaining days, and app verification. Do not send a command sweep.
 8. Check pet-weight updates preserve the existing litter-box association. This path has regression tests but still needs production validation.

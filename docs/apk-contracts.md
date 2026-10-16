@@ -115,9 +115,15 @@ Keep three concepts distinct:
   cloud's apparent Shanghai DND readback clock remains a separate
   hypothesis requiring broader validation.
 
-The specific `/device/change_time_zone` POST method, request fields,
-and behavior are still unverified. Do not assume whether the setter
-accepts the Windows ID or IANA name based on these reads. The
+The setter is now traced end-to-end in the APK: the view reads the selected
+row’s `id` at `0xcd6280` and passes that string to `confirmTimeZone` at
+`0xcd62e8`. The captured string is inserted under `time_zone_iana` at
+`0xcd6534` (shared closure `0xa36c5c` returns context field `0x13`).
+The physical ID closure `0xcc13a4` boxes controller field `0x27` as an
+integer at `0xcc13bc`. The two-field request is POSTed at `0xcd657c`.
+Thus the misnamed `time_zone_iana` request field carries the Windows
+catalog ID, while device readback uses IANA. This is static app evidence;
+server acceptance and schedule behavior remain unverified. The
 integration's existing DND builder can use the verified device IANA
 readback without Windows conversion; it must not use catalog offsets.
 
@@ -127,7 +133,9 @@ Use `--find Amsterdam` to show at most ten matching `id`,
 `display_name` and `offset` triples, with all other keys excluded;
 `--capture-raw` remains optional and stores raw replies only in
 local `*.private.json` files. The public integration does **not**
-poll the catalog, infer timezone IDs from IANA names, or expose writes.
+poll the catalog or infer timezone IDs from IANA names. The explicit
+`notty.device_time_zone` action lists the validated catalog and can submit
+one selected catalog ID with `confirm_schedule_change: true`.
 The optional `--device-id` argument adds two read-only calls (account
 device listing and the selected litter-box info) and returns only
 whitelisted timezone fields; it never includes device identifiers,
@@ -141,10 +149,16 @@ do not imply that the app's timezone-selection catalog has been decoded.
 Offsets are instant-dependent: European and US DST transitions differ,
 so unit tests compare summer, interstitial transition and winter dates.
 
-Actual timezone changes require discovering available catalog choices,
-tracing the POST payload, a preservation strategy for DND and cleaning
-schedules, and one explicitly owner-authorized device write. Issue #21
-remains open until those steps are completed.
+Timezone changes capture DND fields and complete cleaning-plan readback
+before and after one write. Unreadable baseline or mismatched identity
+blocks the operation. A directly reported matching Windows ID is a no-op;
+we do not infer equality from an IANA name. Differences are reported without
+automatic retries, rollback or rewriting clock fields. Acknowledged writes
+with failed readback are distinguished from read failures before writing.
+The app warns at `0xcd63d0` that operations use the selected device local
+time: unchanged clock strings therefore do not prove unchanged firing times.
+Issue #21 remains open for an owner-selected live change, app confirmation,
+and schedule/DST preservation validation. No timezone was changed here.
 
 ## Automatic cleaning delay (#16)
 
