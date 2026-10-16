@@ -113,6 +113,7 @@ class ValidationHooks(TypedDict, total=False):
     ask: Callable[[str], str]
     sleep: Callable[[float], Awaitable[None]]
     interactive: bool | None
+    time_zone: str | None
 
 
 @dataclass
@@ -193,7 +194,6 @@ async def validate(
     action: str,
     value: str | None,
     execute: bool,
-    time_zone: str | None = None,
     **hooks: Unpack[ValidationHooks]
 ) -> int:
     """Validate one selected setting or print a read-only plan.
@@ -217,7 +217,7 @@ async def validate(
             message = "Status only supports read-only mode"
             raise ValidationError(message)
         return 0
-    plan = _setting_plan(device_id, action, value, before, time_zone=time_zone)
+    plan = _setting_plan(device_id, action, value, before, time_zone=hooks.get("time_zone"))
     printable: JsonObject = {
         "action": action,
         "from": plan.current,
