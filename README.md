@@ -25,6 +25,14 @@ For manual installation, copy `custom_components/notty` into your Home Assistant
 
 This repository is intended for HACS custom-repository installation; it has not been accepted into the default HACS catalog.
 
+Published versions are available on [GitHub Releases](https://github.com/Repsay/notty/releases).
+Install a numbered release through HACS to track release updates in Home Assistant's
+**Settings → System → Updates** view, then restart Home Assistant after installing
+an update. If you previously downloaded the default branch, select a numbered
+release in HACS once. If a new version has not appeared yet, refresh repository
+information from HACS. Manual copies must first be managed by HACS to receive
+these updates. Maintainers can follow the [release procedure](docs/releases.md).
+
 ## Entities and controls
 
 Only fields returned by the account/device are exposed. The coordinator polls every 60 seconds.
