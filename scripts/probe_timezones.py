@@ -38,7 +38,7 @@ def catalog_report(response: JsonValue) -> JsonObject:
     return {
         "method": "GET",
         "endpoint": TIME_ZONE_CATALOG_PATH,
-        "paths_and_types": probe_datapoints.load_inventory(response),
+        "paths_and_types": cast("JsonObject", probe_datapoints.load_inventory(response)),
     }
 
 
