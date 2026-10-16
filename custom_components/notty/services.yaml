@@ -1,3 +1,27 @@
+device_time_zone:
+  name: Device time zone
+  description: List server-supported zones or explicitly change the device zone. Changes may reinterpret cleaning and DND schedule clocks. Catalog offsets describe standard time, not the current DST offset. Inspect the before/after response and verify in the app.
+  fields:
+    user_device_id:
+      required: true
+      selector:
+        text:
+    operation:
+      required: true
+      selector:
+        select:
+          options:
+            - list
+            - change
+    catalog_id:
+      description: Exact server ID from the list response, such as W. Europe Standard Time. Do not substitute an IANA name or numeric offset.
+      selector:
+        text:
+    confirm_schedule_change:
+      description: Required true for change, acknowledging that scheduled operations use the selected device local time.
+      selector:
+        boolean:
+
 litter_box_one_key:
   name: Litter box one-key action
   description: Run one of the NOTTY app one-key litter box actions.
@@ -16,7 +40,6 @@ litter_box_one_key:
             - clean
             - level
             - empty
-            - sterilize
 
 litter_box_action:
   name: Litter box action
@@ -34,7 +57,6 @@ litter_box_action:
         select:
           options:
             - one_key
-            - set_mode
             - set_key
             - reset_litter_reminder
             - reset_garbage_bag_reminder
@@ -49,3 +71,36 @@ litter_box_action:
       required: false
       selector:
         object:
+
+litter_box_schedule:
+  name: Litter box cleaning schedules
+  description: List, create, update, enable, disable or delete a NOTTY cleaning plan. Times use the NOTTY schedule clock in HH:MM format, with no timezone conversion. Creating or enabling a plan may schedule cleaning; cleaning mode is left unchanged.
+  fields:
+    user_device_id:
+      name: Physical user device ID
+      required: true
+      selector:
+        text:
+    operation:
+      name: Operation
+      required: true
+      selector:
+        select:
+          options:
+            - list
+            - create
+            - update
+            - enable
+            - disable
+            - delete
+    plan_id:
+      name: Plan ID
+      description: Required for update, enable, disable and delete. Obtain the exact ID with the list operation.
+      selector:
+        text:
+    time:
+      name: NOTTY schedule clock
+      description: Required for create and update. Enter HH:MM as shown by the NOTTY schedule clock; do not use a timestamp or assume Home Assistant timezone conversion.
+      example: "06:30"
+      selector:
+        text:

@@ -7,6 +7,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady,
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from custom_components.notty.api import (
+    ONE_KEY_ACTIONS,
     REMINDER_CYCLE_FIELDS,
     REMINDER_LITTER_INTERVAL_ACTION,
     SAFE_LITTER_ACTIONS,
@@ -31,8 +32,10 @@ from custom_components.notty.const import (
     PLATFORMS,
 )
 from custom_components.notty.coordinator import NottyCoordinator
+from custom_components.notty.device_timezone import SERVICE_DEVICE_TIME_ZONE, register_timezone_service
 from custom_components.notty.entity import value_from_block
 from custom_components.notty.models import NottyConfigEntry
+from custom_components.notty.schedule import SERVICE_LITTER_BOX_SCHEDULE, register_schedule_service
 from custom_components.notty.validation import vol
 
 DEVICE_TYPE_LITTER_BOX = "litter_box"
@@ -41,7 +44,6 @@ SOURCE_PET = "pet"
 SERVICE_LITTER_BOX_ACTION = "litter_box_action"
 SERVICE_LITTER_BOX_ONE_KEY = "litter_box_one_key"
 SERVICE_DEVICE_FIELD = "user_device_id"
-ONE_KEY_ACTIONS = {"clean": 0, "level": 1, "empty": 2, "sterilize": 3}
 
 
 def _get_coordinator(hass: HomeAssistant, user_device_id: str) -> NottyCoordinator:
@@ -89,6 +91,9 @@ def _validate_litter_interval_change(coordinator: NottyCoordinator, device_id: s
 
 
 def _register_services(hass: HomeAssistant) -> None:
+    register_schedule_service(hass, _get_coordinator)
+
+    register_timezone_service(hass, _get_coordinator)
     if hass.services.has_service(DOMAIN, SERVICE_LITTER_BOX_ACTION):
         return
 
@@ -134,11 +139,11 @@ def _register_services(hass: HomeAssistant) -> None:
         await coordinator.async_request_refresh()
 
     device_id_validator: vol.Coerce[str] = vol.Coerce(str)
-    command_validator: vol.Coerce[int] = vol.Coerce(int)
     empty_data: JsonObject = {}
+    one_key_codes: tuple[int, ...] = tuple(ONE_KEY_ACTIONS.values())
     one_key_schema: dict[object, object] = {
         vol.Required(SERVICE_DEVICE_FIELD): device_id_validator,
-        vol.Required("one_key"): vol.Any(vol.In(ONE_KEY_ACTIONS), command_validator),
+        vol.Required("one_key"): vol.Any(vol.In(ONE_KEY_ACTIONS), vol.In(one_key_codes)),
     }
     action_schema: dict[object, object] = {
         vol.Required(SERVICE_DEVICE_FIELD): device_id_validator,
@@ -201,6 +206,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: NottyConfigEntry) -> bo
     ]:
         hass.services.async_remove(DOMAIN, SERVICE_LITTER_BOX_ONE_KEY)
         hass.services.async_remove(DOMAIN, SERVICE_LITTER_BOX_ACTION)
+        hass.services.async_remove(DOMAIN, SERVICE_LITTER_BOX_SCHEDULE)
+
+        hass.services.async_remove(DOMAIN, SERVICE_DEVICE_TIME_ZONE)
     return unloaded
 
 

@@ -128,8 +128,8 @@ async def test_action_payload_cannot_override_selected_device() -> None:
     """Verify action payload cannot override selected device."""
     api = NottyApi(MagicMock())
     api.request = AsyncMock()
-    await api.litter_action("box-1", "set_mode", {"mode": 2, "user_device_id": "box-2", "device_id": "box-2"})
-    assert api.request.call_args.kwargs["data"] == {"mode": 2, "user_device_id": "box-1", "device_id": "box-1"}
+    await api.litter_action("box-1", "set_key", {"switch": 1, "user_device_id": "box-2", "device_id": "box-2"})
+    assert api.request.call_args.kwargs["data"] == {"switch": 1, "user_device_id": "box-1", "device_id": "box-1"}
 
 
 @pytest.mark.parametrize(("status", "error"), [(401, NottyAuthError), (500, NottyApiError)])

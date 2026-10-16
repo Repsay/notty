@@ -33,8 +33,9 @@ Only fields returned by the account/device are exposed. The coordinator polls ev
 | --- | --- |
 | Sensors | Litter box state, cleaning counts, pet weight/usage, event times, duration statistics, reminders and related data |
 | Binary sensors | Connectivity, locks and reported boolean settings |
-| Buttons | Clean, level, empty, sterilize, reminder resets, weight reset and calibration |
+| Buttons | Clean, level, empty, reminder resets, weight reset and calibration |
 | Switches | Child lock, Do Not Disturb, litter-renewal reminder and trash-bag reminder |
+| Actions | List and manage fixed-clock cleaning plans with explicit plan IDs |
 | Selects | Cleaning mode, automatic cleaning delay, known screen languages and reminder intervals |
 | Time | Do Not Disturb start/end |
 | Update | Read-only firmware versions, availability and release-note summary |
@@ -42,13 +43,54 @@ Only fields returned by the account/device are exposed. The coordinator polls ev
 
 Pet records become separate devices linked to the litter box. They do not receive litter-box command buttons. Known sensor fields use explicit units and device classes; unknown scalar fields remain ordinary sensors. Times and schedules are not guessed to be durations, and the weight-unit enum is not a weight measurement.
 
+The mode entity displays the APK-backed labels Auto (`1`), Scheduled (`2`) and Soft stool (`3`), with numeric fallback for unknown values. Mode writes remain blocked in the select and API; `set_mode` is no longer offered by the generic service while schedule setup and live mode behavior remain unverified.
+
 Automatic cleaning delay is available as a configuration select (1–15 minutes) when the device reports `auto_delay`. It is unavailable outside Auto mode, matching the app. Unknown delay values remain in the raw attributes without guessing a supported option.
 
 DND changes preserve the reported LED setting and both time boundaries. The cloud has been observed returning DND wall times shifted by the Shanghai–Amsterdam UTC offset: echoing those values on write shifts the configured schedule again. This integration converts DND reads from the observed Asia/Shanghai clock basis to the Home Assistant timezone for display; writes send times in the configured NOTTY device `time_zone_iana` (falling back to Home Assistant's timezone only when NOTTY does not report a zone). Time edits are converted from HA time to the device zone. Invalid reported timezones and missing/invalid settings are rejected. The live behavior across DST transitions and other NOTTY regions still needs verification; see [APK contracts](docs/apk-contracts.md). Enabling DND with identical start and end times is rejected.
 
+The device's existing `time_zone_iana` sensor now also shows its validated
+IANA-zone status and current UTC offset alongside the Home Assistant time zone,
+their offset difference, and the **assumed** NOTTY API clock source
+(`Asia/Shanghai`). This is **read-only** and preserves the sensor's existing
+unique ID. Offsets account for the date and daylight saving time and may differ
+even when the zones' names do not change. An unknown device zone is never
+silently replaced by the HA zone in the diagnostic sensor.
+
+To inspect NOTTY's supported device-timezone catalog without changing the device,
+run `uv run scripts/probe_timezones.py --session-file probe-output/session.pr30.private.json`.
+Add `--device-id 52963` to also read **only timezone-related fields**
+from the account's device listing and litter-box info. The report excludes
+device IDs, aliases, credentials and unrelated device fields, allowing us to
+check whether NOTTY reports IANA IDs to HA while using Windows IDs in the
+timezone selection catalog.
+The read-only GET is confirmed on an owner's device: it returns an array of
+string `id`, `display_name` and `offset` fields. The default output is a
+**value-free schema inventory and entry count**. Add `--find Amsterdam`
+to display only up to ten matching entries and their exact server IDs,
+without exposing unrelated fields. Optional `--capture-raw
+probe-output/time-zones.private.json` saves a private, ignored local reply.
+Live validation found **141 entries** and confirmed that catalog IDs
+are **Windows timezone identifiers**. The Amsterdam catalog entry is
+`W. Europe Standard Time` with standard offset `01:00:00`.
+Both the device listing and litter-box info instead report
+`time_zone_iana: Europe/Amsterdam` for this owner device.
+The IANA value is suitable for DST-aware runtime conversions (CEST
+is UTC+02:00 in summer); the catalog offset is **not**.
+Unicode CLDR maps this Windows ID to `Europe/Amsterdam` for NL,
+but the exact POST setter payload and its effect on schedules remain
+unverified live. The explicit `notty.device_time_zone` action now supports
+`operation: list` and `operation: change`. List returns current IANA/Windows
+readback, server catalog choices and separate HA/server clock context. Change
+requires an exact `catalog_id` from that list and `confirm_schedule_change: true`.
+It sends the APK contract (the Windows ID in `time_zone_iana`) after fresh catalog
+validation. Capture and inspect its before/after response: device-local schedule
+interpretation may change even when raw clock strings stay the same. It never
+automatically rewrites DND or cleaning schedules. See [issue #21](https://github.com/Repsay/notty/issues/21).
+
 For physical litter boxes that report `open_litter_remind` or `open_garbagebag_remind`, configuration switches enable (`action=1`) or disable (`action=2`) each reminder using the reported configured interval (`default_remaining_days`: 5–30 days; `garbage_bag_cycle_time`: 2–15 days). **Both operations require `cycle_time`.** Owner tests on a real NOTTY device confirmed that action 1 enables the reminder and restarts its countdown, while action 2 disables it without changing the configured cycle. Unknown state or missing/invalid cycle data prevents writes. **The litter-renewal interval selector is enabled for an already enabled reminder:** an owner test confirmed that `action=3` changes the configured litter interval and updates the remaining countdown (30 → 29 days). Selecting the same interval skips the write. Reminder reset buttons and the trash-bag interval selector remain blocked, as their live semantics have not been established.
 
-Two actions are also available in **Developer tools → Actions**: `notty.litter_box_one_key` and `notty.litter_box_action`. Their schemas are in [services.yaml](custom_components/notty/services.yaml). They require the **physical `user_device_id`**, not a pet ID. Command mappings remain experimental; verify them with your own device before relying on automations.
+Two actions are also available in **Developer tools → Actions**: `notty.litter_box_one_key` and `notty.litter_box_action`. Their schemas are in [services.yaml](custom_components/notty/services.yaml). They require the **physical `user_device_id`**, not a pet ID. One-key codes are now traced from the APK: **clean=1, empty=2, level=3**. The former clean=0, level=1 and sterilize=3 mappings were incorrect. The unsupported sterilize button/action has been removed. Review existing automations, especially numeric one-key values: `1` cleans and `3` levels. Static request evidence does not confirm physical behavior; validate each operation individually before relying on automations.
 
 Reminder enable/disable is available through the configuration switches (both send the configured cycle, not the remaining-day countdown). `set_litter_reminder_days` supports a changed 5–30 day cycle when the device explicitly reports an enabled litter reminder. Generic reset and trash-bag interval actions still reject requests until verified against the live API.
 
@@ -128,3 +170,47 @@ Use the official NOTTY app to perform firmware updates. Raw task status is not
 proof of measured progress or a successful installation; only fresh version
 readback establishes the installed version. No physical device/model has been
 validated for this new entity yet. See [APK firmware evidence](docs/apk-firmware.md).
+
+## Cleaning plans
+
+Use **Developer tools → Actions → NOTTY: Litter box cleaning schedules**
+(`notty.litter_box_schedule`). Start with `operation: list` and request its response
+to obtain current plan IDs, times, enable states and quantities. It reads only the
+selected physical litter box. The action supports responses and also works in
+scripts without requesting a response.
+
+```yaml
+action: notty.litter_box_schedule
+data:
+  user_device_id: "your-physical-box-id"
+  operation: list
+response_variable: notty_schedule
+```
+
+| Operation | Additional fields | Effect |
+| --- | --- | --- |
+| `list` | None | Return fresh plans and their IDs |
+| `create` | `time: "06:30"` | Add one plan, up to ten total |
+| `update` | `plan_id`, `time: "06:30"` | Change the selected plan's clock time |
+| `enable` / `disable` | `plan_id` | Change only the selected plan's enable state |
+| `delete` | `plan_id` | Delete exactly the selected plan |
+
+Creating or enabling plans may schedule automatic cleaning. These actions leave
+cleaning mode unchanged. The app describes Scheduled mode as cleaning at configured
+fixed times; behavior outside that mode and with an empty plan list remains
+unverified. Create does not send an enable state, matching the app; inspect readback
+to see the server's resulting state. Update preserves a disabled plan by omitting
+its enable field. Unknown plan quantity/recurrence types block time edits.
+
+**Times are raw NOTTY schedule-clock values in `HH:MM`, not Home Assistant local
+times or UTC timestamps.** Readback returns `clock_basis: notty_schedule_clock`
+and the separately reported device timezone for context. No timezone conversion
+or DND conversion is applied. The backend's schedule timezone/DST and recurrence
+behavior still need owner-observed validation; do not assume that DND readback
+rules apply to plans. Date, weekday and custom recurrence fields are unsupported.
+
+Writes first fetch the selected box's plan list to verify membership and plan
+count. Missing IDs, IDs from another box, malformed list responses and extra fields
+are rejected. Successful writes refresh the coordinator and return fresh readback
+when a response is requested. No schedule actions run automatically during setup,
+polling or read-only probes. See [APK schedule evidence](docs/apk-schedules.md).
