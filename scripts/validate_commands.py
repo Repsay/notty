@@ -185,7 +185,12 @@ async def _read_back(
                 ):
                     console("DND SCHEDULE CHANGED: readback differs; do not retry the write automatically")
                     return 1
-                if plan.current == plan.requested:
+                if plan.action == DND_ACTION:
+                    if plan.current == plan.requested:
+                        console("DND PRESERVED: switch, LED and schedule matched; no state transition demonstrated")
+                    else:
+                        console("DND STATE CONFIRMED: switch changed; LED and schedule preserved; verify in app")
+                elif plan.current == plan.requested:
                     console("SAME-STATE ACK: endpoint accepted; no state transition demonstrated")
                 else:
                     console("READ-BACK CONFIRMED: setting changed; verify physically/app")
