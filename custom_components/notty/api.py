@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from datetime import UTC, date, datetime, time
 import json
 import logging
@@ -18,13 +17,10 @@ type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValu
 type JsonObject = dict[str, JsonValue]
 
 BASE_URL = "https://api.nottycat.com"
-FIREBASE_SIGN_IN_URL = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
-FIREBASE_REFRESH_URL = "https://securetoken.googleapis.com/v1/token"
-DEFAULT_FIREBASE_API_KEY = "AIzaSyCm6i6ZT7MAQmdA9rKobMAslpTXRCdXncw"
 APP_USER_AGENT = "4.1.0;android;6.0.1;default;A001"
 LOGIN_CODE_TYPE_ID = 1
-LOGIN_USER_DEVICE_ID = 1
-LOGIN_DEVICE_ID = 1
+LOGIN_DEVICE_ID = "1"
+APP_VERSION_NUMBER = "1.1.30+76"
 DEFAULT_CLIENT_ID = "0"
 DEVICE_INFO_PATHS = {"litter_box": "/device/litter_box/get_info/"}
 LITTER_READ_ENDPOINTS = {
@@ -243,18 +239,16 @@ class ConnectionOptions(TypedDict, total=False):
     """Optional NOTTY account and session parameters."""
 
     email: str | None
-    password: str | None
     verification_code: str | None
     token: str | None
     refresh_token: str | None
     user_id: str | int | None
-    firebase_api_key: str | None
     client_id: str
     region_code: str
 
 
-class NottyTransport(ABC):
-    """HTTP transport with one bounded authentication retry."""
+class NottyTransport:
+    """HTTP transport that propagates expired sessions without replaying requests."""
 
     def __init__(self, session: aiohttp.ClientSession, **options: Unpack[ConnectionOptions]) -> None:
         self._session = session
@@ -262,24 +256,12 @@ class NottyTransport(ABC):
         verification_code = options.get("verification_code")
         user_id = options.get("user_id")
         self.email = email.strip() if email else email
-        self.password = options.get("password")
         self.verification_code = verification_code.strip() if verification_code else verification_code
         self.token = options.get("token")
         self.refresh_token = options.get("refresh_token")
         self.user_id = str(user_id) if not matches_value(user_id, (None, "")) else None
-        self.firebase_api_key = options.get("firebase_api_key") or DEFAULT_FIREBASE_API_KEY
         self.client_id = options.get("client_id", DEFAULT_CLIENT_ID)
         self.region_code = options.get("region_code", "NL")
-        self.authenticating = False
-
-    @abstractmethod
-    async def login(self) -> str:
-        """Authenticate or renew the credentials used by transport requests.
-
-        Returns:
-            The account access token.
-        """
-        raise NotImplementedError
 
     def _headers(self) -> dict[str, str]:
         headers = {
@@ -380,24 +362,13 @@ class NottyTransport(ABC):
             return {"raw": text}
         return self.unwrap(payload)
 
-    async def request(
-        self, method: str, path: str, *, data: JsonObject | None = None, retry_auth: bool = True
-    ) -> JsonValue:
-        """Request.
+    async def request(self, method: str, path: str, *, data: JsonObject | None = None) -> JsonValue:
+        """Send one request and let Home Assistant handle expired sessions.
 
         Returns:
-            JsonValue: The resulting request.
-
-        Raises:
-            NottyAuthError: When the cloud session is rejected.
+            The decoded NOTTY response.
         """
-        try:
-            return await self.raw_request(method, f"{BASE_URL}{path}", data=data)
-        except NottyAuthError:
-            if not retry_auth or self.authenticating or not self.email or not self.password:
-                raise
-            await self.login()
-            return await self.request(method, path, data=data, retry_auth=False)
+        return await self.raw_request(method, f"{BASE_URL}{path}", data=data)
 
     async def verify_token(self) -> JsonValue:
         """Verify token.
@@ -405,7 +376,7 @@ class NottyTransport(ABC):
         Returns:
             JsonValue: The resulting verify token.
         """
-        return await self.request("GET", "/account/verify_token", retry_auth=False)
+        return await self.request("GET", "/account/verify_token")
 
     async def endpoint_action(self, device_id: str, path: str) -> JsonValue:
         """Endpoint action.
@@ -539,7 +510,7 @@ class NottyApi(NottyTransport):
     def _extract_login(result: JsonValue) -> tuple[str | None, str | None, str | None]:
         if not isinstance(result, dict):
             return None, None, None
-        token = NottyApi._find_first(result, ("access_token", "accessToken", "token", "idToken"))
+        token = NottyApi._find_first(result, ("access_token", "accessToken", "token"))
         refresh = NottyApi._find_first(result, ("refresh_token", "refreshToken"))
         user_id = result.get("user_id") or result.get("userId") or result.get("uid")
         if matches_value(user_id, (None, "")):
@@ -577,11 +548,10 @@ class NottyApi(NottyTransport):
             "POST",
             f"{BASE_URL}/account/login_by_email",
             data={
-                "code_type_id": LOGIN_CODE_TYPE_ID,
                 "email": self.email,
                 "code": self.verification_code,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
                 "device_id": LOGIN_DEVICE_ID,
+                "version_number": APP_VERSION_NUMBER,
             },
             authenticated=False,
         )
@@ -594,209 +564,31 @@ class NottyApi(NottyTransport):
         _LOGGER.debug("NOTTY email-code login response contained no NOTTY access token")
         return False
 
-    async def _firebase_password_sign_in(self) -> tuple[str, str | None]:
-        if not self.firebase_api_key:
-            msg = "Firebase API key is required"
-            raise NottyAuthError(msg)
-        result = await self.raw_request(
-            "POST",
-            f"{FIREBASE_SIGN_IN_URL}?key={self.firebase_api_key}",
-            data={"email": self.email, "password": self.password, "returnSecureToken": True},
-            authenticated=False,
-        )
-        token, refresh, _user_id = self._extract_login(result)
-        if not token:
-            msg = "Firebase login response contained no ID token"
-            raise NottyAuthError(msg)
-        return token, refresh
-
-    async def login_with_firebase(self) -> bool:
-        """Login with firebase.
-
-        Returns:
-            bool: The resulting login with firebase.
-        """
-        id_token, refresh = await self._firebase_password_sign_in()
-        attempts: tuple[JsonObject, ...] = (
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "id_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "idToken": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "access_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "firebase_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "id_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "access_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-        )
-        errors: list[str] = []
-        for payload in attempts:
-            try:
-                result = await self.raw_request(
-                    "POST", f"{BASE_URL}/account/login_by_email", data=payload, authenticated=False
-                )
-            except NottyApiError as err:
-                errors.append(str(err))
-                continue
-            token, notty_refresh, user_id = self._extract_login(result)
-            if token:
-                self.token = token
-                self.refresh_token = notty_refresh or refresh
-                self.user_id = user_id
-                return True
-            errors.append("response contained no NOTTY access token")
-        _LOGGER.debug("NOTTY Firebase token exchange attempts failed: %s", " | ".join(errors))
-        return False
-
-    async def login_notty(self) -> bool:
-        # The Flutter APK exposes account login code and Firebase Auth, but its exact
-        # password exchange is AOT compiled. Try known/common NOTTY payload variants.
-        """Login notty.
-
-        Returns:
-            bool: The resulting login notty.
-        """
-        attempts: tuple[tuple[str, JsonObject], ...] = (
-            (
-                "/account/login",
-                {
-                    "email": self.email,
-                    "password": self.password,
-                    "user_device_id": LOGIN_USER_DEVICE_ID,
-                    "device_id": LOGIN_DEVICE_ID,
-                },
-            ),
-            (
-                "/account/login_by_password",
-                {
-                    "email": self.email,
-                    "password": self.password,
-                    "user_device_id": LOGIN_USER_DEVICE_ID,
-                    "device_id": LOGIN_DEVICE_ID,
-                },
-            ),
-            (
-                "/account/login_by_email",
-                {
-                    "code_type_id": LOGIN_CODE_TYPE_ID,
-                    "email": self.email,
-                    "password": self.password,
-                    "user_device_id": LOGIN_USER_DEVICE_ID,
-                    "device_id": LOGIN_DEVICE_ID,
-                },
-            ),
-            (
-                "/account/login",
-                {
-                    "username": self.email,
-                    "password": self.password,
-                    "user_device_id": LOGIN_USER_DEVICE_ID,
-                    "device_id": LOGIN_DEVICE_ID,
-                },
-            ),
-        )
-        errors: list[str] = []
-        for path, payload in attempts:
-            try:
-                result = await self.raw_request("POST", f"{BASE_URL}{path}", data=payload, authenticated=False)
-            except NottyApiError as err:
-                errors.append(f"{path}: {err}")
-                continue
-            token, refresh, user_id = self._extract_login(result)
-            if token:
-                self.token = token
-                self.refresh_token = refresh
-                self.user_id = user_id
-                return True
-            errors.append(f"{path}: response contained no access token")
-        _LOGGER.debug("NOTTY password login attempts failed: %s", " | ".join(errors))
-        return False
-
     async def login(self) -> str:
-        """Authenticate without recursively retrying during credential validation.
+        """Authenticate with a single email-code request, then validate discovery.
 
         Returns:
-            The computed result.
+            The NOTTY access token.
+
+        Raises:
+            NottyAuthError: When an email or code is missing, or the response has no access token.
         """
-        self.authenticating = True
-        try:
-            return await self._login()
-        finally:
-            self.authenticating = False
-
-    async def _login(self) -> str:
         if not self.email:
-            msg = "Email address is required"
-            raise NottyAuthError(msg)
-
-        errors: list[str] = []
-        if self.verification_code:
-            try:
-                if await self._login_with_email_code():
-                    await self.devices()
-                    return self.token or ""
-            except NottyApiError as err:
-                errors.append(f"Email code: {err}")
-
-        if self.password:
-            for label, provider in (("Firebase/NOTTY", self.login_with_firebase), ("NOTTY", self.login_notty)):
-                try:
-                    accepted = await provider()
-                    if accepted:
-                        await self.devices()
-                        return self.token or ""
-                except NottyApiError as err:
-                    errors.append(f"{label}: {err}")
-
-        if not self.password and not self.verification_code:
-            msg = "Password or verification code is required"
-            raise NottyAuthError(msg)
-
-        detail = "; ".join(errors) or "No supported login endpoint accepted the credentials"
-        raise NottyAuthError(detail)
+            message = "Email address is required"
+            raise NottyAuthError(message)
+        if not self.verification_code:
+            message = "A fresh email verification code is required; password login is unsupported"
+            raise NottyAuthError(message)
+        try:
+            accepted = await self._login_with_email_code()
+        finally:
+            # Codes must never be reused by a request retry or kept in a session.
+            self.verification_code = None
+        if not accepted:
+            message = "Email-code login response contained no NOTTY access token"
+            raise NottyAuthError(message)
+        await self.devices()
+        return self.token or ""
 
     async def pets(self) -> list[JsonObject]:
         """Pets.

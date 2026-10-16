@@ -3,7 +3,7 @@
 Start with read-only captures. This checklist is for the device owner; the automated suite does not operate hardware.
 
 1. Install in a test Home Assistant instance, or back up the existing integration first.
-2. Try email/password authentication. Record success/failure without publishing credentials, error bodies, or tokens. If necessary try the email-code flow.
+2. Request a fresh email verification code and test the email-code flow. Record success/failure without publishing credentials, error bodies, or tokens. Password and Google authentication are unsupported.
 3. Run the datapoint probe with a valid token and user ID, saving a local raw capture and value-free report. Confirm discovery distinguishes physical box IDs from pet IDs.
 4. Compare app/device values with Home Assistant: online state, mode, child lock, Do Not Disturb times, reminders, pet weight and toileting counts/durations. For DND, record NOTTY app clock times, device `time_zone_iana` if present, HA timezone, API readback clocks, and the result of a **single** confirmed write. Avoid reposting raw DND readback times; live tests showed that a same-state write shifted both boundaries by six hours. Verify readback times match the previous API values when only toggling DND, and check winter/summer behavior separately.
 5. Check events in your own time zone, including the date boundary. The current server-time assumption is Asia/Shanghai unless a UTC message field is provided.

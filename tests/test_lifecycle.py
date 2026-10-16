@@ -60,6 +60,7 @@ async def test_setup_entities_services_and_unload(hass: HomeAssistant, runtime_a
     """Verify setup entities services and unload."""
     entry = await setup(hass)
     assert entry.state is ConfigEntryState.LOADED
+    runtime_api.login.assert_not_awaited()
     assert hass.states.get("sensor.test_box_today_clean_count").state == EXPECTED_2
     assert hass.states.get("switch.test_box_child_lock").state == EXPECTED_OFF
     assert hass.states.get("number.test_cat_weight").state == EXPECTED_4_2
@@ -83,6 +84,7 @@ async def test_expired_token_requests_reauthentication(hass: HomeAssistant, runt
     runtime_api.devices.side_effect = NottyAuthError("expired")
     entry = await setup(hass)
     assert entry.state is ConfigEntryState.SETUP_ERROR
+    runtime_api.login.assert_not_awaited()
     flows = hass.config_entries.flow.async_progress()
     assert any(flow["context"]["source"] == EXPECTED_REAUTH for flow in flows)
 

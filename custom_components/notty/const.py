@@ -6,6 +6,7 @@ __all__ = ["CONF_ACCESS_TOKEN", "CONF_PASSWORD"]
 CONF_REFRESH_TOKEN = "refresh_token"  # ruff: ignore[hardcoded-password-string]
 
 DOMAIN = "notty"
+CONFIG_ENTRY_VERSION = 3
 CONF_EMAIL = "email"
 CONF_VERIFICATION_CODE = "verification_code"
 CONF_USER_ID = "user_id"

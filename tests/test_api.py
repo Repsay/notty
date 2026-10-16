@@ -30,15 +30,15 @@ def test_unwrap_errors(code: int | str, error: type[Exception]) -> None:
         NottyApi.unwrap({"code": code, "message": "rejected"})
 
 
-async def test_retry_auth_once() -> None:
-    """Verify retry auth once."""
-    api = NottyApi(MagicMock(), email="test@example.test", password=SAMPLE_CREDENTIAL)
-    api.raw_request = AsyncMock(side_effect=[NottyAuthError(), NottyAuthError()])
+async def test_expired_session_is_not_replayed() -> None:
+    """Expired sessions must not trigger a new login or repeat the request."""
+    api = NottyApi(MagicMock(), email="test@example.test", verification_code="123456")
+    api.raw_request = AsyncMock(side_effect=NottyAuthError("expired"))
     api.login = AsyncMock()
     with pytest.raises(NottyAuthError):
         await api.request("GET", "/pet/list")
-    api.login.assert_awaited_once()
-    assert api.raw_request.await_count == EXPECTED_API_RAW_REQUEST_AWAIT_COUNT
+    api.login.assert_not_awaited()
+    api.raw_request.assert_awaited_once()
 
 
 @pytest.mark.parametrize(
@@ -59,17 +59,14 @@ async def test_read_fallbacks_do_not_swallow_auth_failures(method: str, args: li
         await getattr(api, method)(*args)
 
 
-async def test_login_validation_does_not_recurse() -> None:
-    """Verify login validation does not recurse."""
-    api = NottyApi(MagicMock(), email="test@example.test", password=SAMPLE_CREDENTIAL)
-    api.login_with_firebase = AsyncMock(return_value=True)
-    api.login_notty = AsyncMock(return_value=True)
-    api.raw_request = AsyncMock(side_effect=NottyAuthError("expired"))
+async def test_login_validation_does_not_reuse_the_code() -> None:
+    """A rejected discovery request after login cannot reuse the one-time code."""
+    api = NottyApi(MagicMock(), email="test@example.test", verification_code="123456")
+    api.raw_request = AsyncMock(side_effect=[{"access_token": "abc", "user_id": 42}, NottyAuthError("expired")])
     with pytest.raises(NottyAuthError):
         await api.login()
-    assert api.login_with_firebase.await_count == 1
-    assert api.login_notty.await_count == 1
-    assert not api.authenticating
+    assert api.raw_request.await_count == EXPECTED_API_RAW_REQUEST_AWAIT_COUNT
+    assert api.verification_code is None
 
 
 async def test_code_login_extracts_credentials() -> None:
@@ -194,6 +191,3 @@ def test_bound_pet_devices_prefer_physical_user_device_id() -> None:
     }
     assert NottyApi.pet_litter_device_id(pet) == EXPECTED_9001
     assert NottyApi.pet_litter_device(pet | {"pet_id": 101})["_notty_litter_user_device_id"] == EXPECTED_9001
-
-
-SAMPLE_CREDENTIAL = "test"

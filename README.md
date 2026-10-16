@@ -10,7 +10,7 @@ This project originated from investigation of the NOTTY Android app. Authenticat
 
 - Home Assistant **2026.3 or later** (bundled integration icons require 2026.3).
 - A NOTTY account and a litter box already bound to that account.
-- Internet access to `api.nottycat.com`; password login also uses Google Firebase Authentication.
+- Internet access to `api.nottycat.com` and access to your NOTTY account email inbox.
 - HACS for the HACS installation path.
 
 ## Install with HACS
@@ -19,7 +19,7 @@ This project originated from investigation of the NOTTY Android app. Authenticat
 2. Add `https://github.com/Repsay/notty` with type **Integration**.
 3. Find **NOTTY Smart Pet**, download it, and restart Home Assistant.
 4. Open **Settings → Devices & services → Add integration → NOTTY Smart Pet**.
-5. Enter your NOTTY email and region (`NL` by default). Enter a password, or leave it blank to request an email verification code.
+5. Enter your NOTTY email and region (`NL` by default). Request an email verification code, then enter the code in the next step.
 
 For manual installation, copy `custom_components/notty` into your Home Assistant configuration's `custom_components/` directory, restart, and follow steps 4–5. Existing prototype users should replace their whole `custom_components/notty` folder after backing it up. The domain and entity unique-ID format are preserved.
 
@@ -49,8 +49,8 @@ Two actions are also available in **Developer tools → Actions**: `notty.litter
 
 ## Sessions and troubleshooting
 
-- Password sessions attempt to log in again once when a request is rejected. New tokens are saved in the config entry after a successful update.
-- Email codes are discarded after login. When a code-only session expires, Home Assistant asks you to reauthenticate. Firebase refresh-token exchange is **not implemented**; storing a refresh token does not imply it is used.
+- Authentication uses email verification codes. Unverified password/Firebase exchanges have been removed; a rejected request is never automatically replayed with stored credentials.
+- Email codes are discarded after the exchange. When a session expires, Home Assistant asks you to request a fresh code. Refresh-token renewal is **not implemented**; storing a server-provided refresh token does not imply it is used. Existing entries migrate without losing valid access tokens, while legacy passwords, Firebase overrides and stored codes are removed.
 - Authentication failures request reauthentication; connection failures make entities unavailable and Home Assistant retries setup/updates.
 - Device IDs and account-bound pet IDs differ. Use the probe's `--device-id` if automatic discovery does not identify your physical box.
 - Download integration diagnostics from the integration menu for a report of datapoint paths and types. Credentials and response values are omitted.
@@ -69,9 +69,9 @@ export NOTTY_USER_ID='your-NOTTY-user-id'
 uv run scripts/probe_datapoints.py --output probe-output/before.json
 ```
 
-Alternatively set `NOTTY_EMAIL` plus `NOTTY_PASSWORD` or `NOTTY_VERIFICATION_CODE`. Set `NOTTY_REGION_CODE` if needed. Credentials are read from the environment, not command arguments. Never paste them into issues.
+Alternatively set `NOTTY_EMAIL` and a fresh `NOTTY_VERIFICATION_CODE`. Password login is unsupported; `NOTTY_PASSWORD` is not read by the probe. Set `NOTTY_REGION_CODE` if needed. Credentials are read from the environment, not command arguments. Never paste them into issues.
 
-Email verification codes are single-use. Add `--session-file probe-output/session.private.json` on the first run to save the established access token locally and reuse that file on later runs. The session file has owner-only permissions and is ignored by Git. It contains a token, user ID, email and region, never the verification code or password. An expired saved session needs a fresh login and a new session file. Saved sessions take precedence over email-code/password login; an explicit `NOTTY_ACCESS_TOKEN` takes precedence over the saved token.
+Email verification codes are single-use. Add `--session-file probe-output/session.private.json` on the first run to save the established access token locally and reuse that file on later runs. The session file has owner-only permissions and is ignored by Git. It contains a token, user ID, email and region, never the verification code or password. An expired saved session needs a fresh login and a new session file. Saved sessions take precedence over email-code login; an explicit `NOTTY_ACCESS_TOKEN` takes precedence over the saved token.
 
 ```sh
 # Optional: save sensitive API responses locally for investigation.

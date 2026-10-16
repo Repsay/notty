@@ -1,4 +1,4 @@
-# APK-backed settings contracts
+# APK-backed API contracts
 
 These contracts were traced in NOTTY Smart Pet 1.1.30 (SHA-256
 `3b6dc21037f2802e92233ecd9f685e76b03a79afa2d82dd52a5dfcd689a18e6a`).
@@ -93,3 +93,37 @@ Automated checks establish request construction, Home Assistant service behavior
 state preservation, bounds and refresh behavior. They do not establish server
 acceptance or physical behavior. Issues #11, #12 and #16 remain open pending
 owner-observed live validation. No device commands are sent by this test suite.
+
+## Email verification authentication (#13, #14)
+
+`view/login/login_account/login_controller.dart`, `LoginController::login`
+(`0xc87640`), constructs `/account/login_by_email` with exactly `email`, `code`,
+`device_id` and `version_number`. The device ID is the string `"1"` loaded at
+`0xc876f8`; it is not a physical device identifier. The version closure
+(`0xc7ff10`) returns `AppConfig.app_version_number`. Its initializer (`0xc80784`)
+joins the package version, `"+"`, and build number: `"1.1.30+76"` for this APK.
+
+The separate `/account/get_email_code` request (`0xc88fa0`) contains `email`,
+`code_type_id: 1` (login), and `client_id: "0"`. Those last two fields do not
+belong in the login exchange. HTTP defaults include the app's `User-Aagent`
+header and anonymous `HZUID: "2"`; authenticated requests use the stored NOTTY
+session token. The integration retains its existing compatibility headers.
+
+The inspected email flow does not establish any password or Firebase email
+password endpoint. Google authentication uses `/account/login_by_google` and
+is a separate flow. The integration now supports email codes only and rejects
+an `idToken` as a NOTTY session credential. A code is discarded after one exchange,
+including failures. Expired sessions trigger Home Assistant reauthentication;
+they never replay a code or try speculative endpoints. No refresh-token exchange
+has been established. Migration preserves existing sessions and removes stored
+passwords, Firebase API keys, and verification codes.
+
+An earlier local email-code login succeeded with the previous payload, which
+omitted the app version and used extra fields. This shows that the observed
+request differences did not prevent that login; it does not establish which
+metadata fields the server requires. We now choose the traced app metadata for
+consistency, while retaining existing HTTP compatibility headers.
+
+Synthetic tests verify payloads, failure handling, credential cleanup and
+migration. The corrected metadata still requires a fresh live login to establish
+server acceptance; these changes do not claim new live authentication validation.

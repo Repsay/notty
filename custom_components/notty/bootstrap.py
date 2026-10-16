@@ -16,6 +16,7 @@ from custom_components.notty.const import (
     CONF_REGION_CODE,
     CONF_USER_ID,
     CONF_VERIFICATION_CODE,
+    CONFIG_ENTRY_VERSION,
     DEFAULT_REGION_CODE,
     DOMAIN,
     PLATFORMS,
@@ -26,7 +27,6 @@ from custom_components.notty.validation import vol
 
 DEVICE_TYPE_LITTER_BOX = "litter_box"
 SOURCE_PET = "pet"
-CONFIG_ENTRY_VERSION = 2
 
 SERVICE_LITTER_BOX_ACTION = "litter_box_action"
 SERVICE_LITTER_BOX_ONE_KEY = "litter_box_one_key"
@@ -126,12 +126,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: NottyConfigEntry) -> boo
     api = NottyApi(
         async_get_clientsession(hass),
         email=stored.get(CONF_EMAIL),
-        password=stored.get(CONF_PASSWORD),
-        verification_code=stored.get(CONF_VERIFICATION_CODE),
         token=stored.get(CONF_ACCESS_TOKEN),
         refresh_token=stored.get(CONF_REFRESH_TOKEN),
         user_id=stored.get(CONF_USER_ID),
-        firebase_api_key=stored.get(CONF_FIREBASE_API_KEY),
         region_code=stored.get(CONF_REGION_CODE, DEFAULT_REGION_CODE),
     )
     if not api.token:
@@ -174,6 +171,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: NottyConfigEntry) -> b
     """
     if entry.version > CONFIG_ENTRY_VERSION:
         return False
-    if entry.version == 1:
-        hass.config_entries.async_update_entry(entry, version=2)
+    if entry.version < CONFIG_ENTRY_VERSION:
+        data = dict(cast("JsonObject", entry.data))
+        for key in (CONF_PASSWORD, CONF_FIREBASE_API_KEY, CONF_VERIFICATION_CODE):
+            data.pop(key, None)
+        hass.config_entries.async_update_entry(entry, data=data, version=CONFIG_ENTRY_VERSION)
     return True

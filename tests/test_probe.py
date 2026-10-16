@@ -53,7 +53,7 @@ async def test_session_saved_without_one_time_code_or_password(tmp_path: Path, m
     session_file = tmp_path / "session.private.json"
     args = probe_args(session_file=session_file, output=tmp_path / "report.json")
     with (
-        patch.object(probe.load_api, "NottyApi", return_value=api),
+        patch.object(probe.load_api, "NottyApi", return_value=api) as constructor,
         patch.object(probe, "collect", AsyncMock(return_value={"responses": {}, "errors": []})),
     ):
         assert await probe.run(args) == 0
@@ -66,6 +66,8 @@ async def test_session_saved_without_one_time_code_or_password(tmp_path: Path, m
     }
     assert session_file.stat().st_mode & 0o777 == PRIVATE_SESSION_FILE_MODE
     api.login.assert_awaited_once()
+    assert probe.load_api.ConnectionOptions.__optional_keys__.isdisjoint({"password", "firebase_api_key"})
+    assert set(constructor.call_args.kwargs) <= probe.load_api.ConnectionOptions.__optional_keys__
 
 
 async def test_saved_session_reused_without_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
