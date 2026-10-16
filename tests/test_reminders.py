@@ -60,7 +60,6 @@ async def test_wire_contract(reminder: Reminder, operation: int) -> None:
     "action",
     [
         "reset_litter_reminder",
-        "set_litter_reminder_days",
         "reset_garbage_bag_reminder",
         "set_garbage_bag_reminder_days",
     ],
@@ -71,6 +70,35 @@ async def test_unverified_reminder_operations_do_not_write(action: str) -> None:
     api.request = AsyncMock()
     with pytest.raises(NottyApiError, match="disabled pending live endpoint verification"):
         await api.litter_action("box-1", action, {"cycle_time": 10})
+    api.request.assert_not_awaited()
+
+
+async def test_litter_interval_action_three_wire_contract() -> None:
+    """Owner observed action 3 changing enabled litter interval from 30 to 29."""
+    api = NottyApi(MagicMock())
+    api.request = AsyncMock()
+    await api.litter_action("box-1", "set_litter_reminder_days", {"cycle_time": 29})
+    api.request.assert_awaited_once_with(
+        "POST",
+        "/device/litter_box/set_litter_remind",
+        data={"action": 3, "cycle_time": 29, "user_device_id": "box-1", "device_id": "box-1"},
+    )
+
+
+@pytest.mark.parametrize("action", [1, 2, 0, "3", None, True])
+def test_litter_interval_action_rejects_other_codes(action: object) -> None:
+    """An interval adjustment must not accidentally enable or disable a reminder."""
+    with pytest.raises(NottyApiError, match="action=3"):
+        reminder_payload("set_litter_reminder_days", {"action": action, "cycle_time": 29})
+
+
+@pytest.mark.parametrize("cycle", [None, True, False, 4, 31, 3.5, "unknown", {}, []])
+async def test_litter_interval_invalid_cycle_does_not_write(cycle: object) -> None:
+    """Reject all unverified or invalid intervals before an HTTP request."""
+    api = NottyApi(MagicMock())
+    api.request = AsyncMock()
+    with pytest.raises(NottyApiError, match="cycle_time"):
+        await api.litter_action("box-1", "set_litter_reminder_days", {"cycle_time": cycle})
     api.request.assert_not_awaited()
 
 
@@ -211,6 +239,114 @@ async def test_unsupported_device_has_no_reminder_switch(hass: HomeAssistant) ->
     assert hass.states.get("switch.test_box_trash_bag_reminder") is None
 
 
+async def test_litter_interval_select_changes_enabled_reminder(
+    hass: HomeAssistant, runtime_api: MagicMock
+) -> None:
+    """HA interval select uses the verified action-3 mapping."""
+    runtime_api.device_info.return_value.update({
+        "open_litter_remind": True,
+        "default_remaining_days": 30,
+        "remaining_days": 30,
+    })
+    await setup(hass)
+    entity_id = "select.test_box_litter_renewal_reminder_interval"
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.state == "30 days"
+    await hass.services.async_call(
+        "select", "select_option", {"entity_id": entity_id, "option": "29 days"}, blocking=True
+    )
+    runtime_api.litter_action.assert_awaited_once_with(
+        "box-1", "set_litter_reminder_days", {"cycle_time": 29}
+    )
+
+
+async def test_litter_interval_select_noop_does_not_reset_countdown(
+    hass: HomeAssistant, runtime_api: MagicMock
+) -> None:
+    """Never resend unchanged cycle; action 3 same-cycle reset is unverified."""
+    runtime_api.device_info.return_value.update({
+        "open_litter_remind": True,
+        "default_remaining_days": 30,
+        "remaining_days": 21,
+    })
+    await setup(hass)
+    await hass.services.async_call(
+        "select",
+        "select_option",
+        {"entity_id": "select.test_box_litter_renewal_reminder_interval", "option": "30 days"},
+        blocking=True,
+    )
+    runtime_api.litter_action.assert_not_awaited()
+
+
+@pytest.mark.parametrize("enabled", [False, None, 8])
+async def test_litter_interval_select_unavailable_when_not_enabled(
+    hass: HomeAssistant, runtime_api: MagicMock, enabled: object
+) -> None:
+    """Do not send untested action-3 writes on disabled or unknown states."""
+    runtime_api.device_info.return_value.update({"open_litter_remind": enabled, "default_remaining_days": 30})
+    await setup(hass)
+    entity_id = "select.test_box_litter_renewal_reminder_interval"
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.state == "unavailable"
+    await hass.services.async_call(
+        "select", "select_option", {"entity_id": entity_id, "option": "29 days"}, blocking=True
+    )
+    runtime_api.litter_action.assert_not_awaited()
+
+
+async def test_generic_litter_interval_action_three(
+    hass: HomeAssistant, runtime_api: MagicMock
+) -> None:
+    """Generic service also validates active state before an interval write."""
+    runtime_api.device_info.return_value.update({"open_litter_remind": True, "default_remaining_days": 30})
+    await setup(hass)
+    await hass.services.async_call(
+        "notty",
+        "litter_box_action",
+        {"user_device_id": "box-1", "action": "set_litter_reminder_days", "data": {"cycle_time": 29}},
+        blocking=True,
+    )
+    runtime_api.litter_action.assert_awaited_once_with(
+        "box-1", "set_litter_reminder_days", {"action": 3, "cycle_time": 29}
+    )
+
+
+@pytest.mark.parametrize("enabled", [False, None, 8])
+async def test_generic_litter_interval_rejects_disabled(
+    hass: HomeAssistant, runtime_api: MagicMock, enabled: object
+) -> None:
+    """Reject action 3 if the current reminder is not confirmed enabled."""
+    runtime_api.device_info.return_value.update({"open_litter_remind": enabled, "default_remaining_days": 30})
+    await setup(hass)
+    with pytest.raises(HomeAssistantError, match="enabled reminder"):
+        await hass.services.async_call(
+            "notty",
+            "litter_box_action",
+            {"user_device_id": "box-1", "action": "set_litter_reminder_days", "data": {"cycle_time": 29}},
+            blocking=True,
+        )
+    runtime_api.litter_action.assert_not_awaited()
+
+
+async def test_generic_litter_interval_rejects_unchanged(
+    hass: HomeAssistant, runtime_api: MagicMock
+) -> None:
+    """Avoid running an unverified reset via an unchanged cycle value."""
+    runtime_api.device_info.return_value.update({"open_litter_remind": True, "default_remaining_days": 30})
+    await setup(hass)
+    with pytest.raises(HomeAssistantError, match="unchanged"):
+        await hass.services.async_call(
+            "notty",
+            "litter_box_action",
+            {"user_device_id": "box-1", "action": "set_litter_reminder_days", "data": {"cycle_time": 30}},
+            blocking=True,
+        )
+    runtime_api.litter_action.assert_not_awaited()
+
+
 @pytest.mark.parametrize("reminder", REMINDERS)
 async def test_generic_reset_service_is_blocked(
     hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
@@ -251,7 +387,7 @@ async def test_generic_interval_service_rejects_out_of_range_value(
     action, _, _, _, _ = reminder
     set_action = "set_litter_reminder_days" if action == ACTION_LITTER else "set_garbage_bag_reminder_days"
     await setup(hass)
-    with pytest.raises(HomeAssistantError, match="disabled pending live endpoint verification"):
+    with pytest.raises(HomeAssistantError, match="cycle_time|disabled pending live endpoint verification"):
         await hass.services.async_call(
             "notty",
             "litter_box_action",
