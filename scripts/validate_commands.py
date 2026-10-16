@@ -16,7 +16,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from scripts.probe_datapoints import load_api
+if __package__:
+    from scripts.probe_datapoints import load_api
+else:
+    # Python puts scripts/, not the repository root, on sys.path when run
+    # directly as 'uv run scripts/validate_commands.py'.
+    from probe_datapoints import load_api
 
 SETTINGS = {
     "child-lock": ("set_key", "switch_key"),
@@ -73,9 +78,7 @@ def action_payload(action: str, requested: int, info: dict[str, Any]) -> dict[st
         if not isinstance(begin, str) or not isinstance(end, str):
             raise ValidationError("Cannot preserve current Do Not Disturb interval")
         if requested == 1 and begin == end:
-            raise ValidationError(
-                "Cannot enable Do Not Disturb with identical start/end times"
-            )
+            raise ValidationError("Cannot enable Do Not Disturb with identical start/end times")
         payload.update({"dnd_begin_time": begin, "dnd_end_time": end})
     return payload
 
@@ -198,7 +201,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         return asyncio.run(run(args))
-    except (ValidationError, load_api.NottyAuthError, load_api.NottyApiError, OSError):
+    except ValidationError, load_api.NottyAuthError, load_api.NottyApiError, OSError:
         # API error bodies may include private account or device information.
         print(
             "Validation stopped; no further commands were sent. Check session, "
