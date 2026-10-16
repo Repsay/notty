@@ -90,7 +90,7 @@ def state_number(value: JsonValue) -> int | None:
     return None
 
 
-def action_payload(action: str, requested: int, info: JsonObject) -> JsonObject:
+def action_payload(action: str, requested: int, info: JsonObject, *, time_zone: str | None = None) -> JsonObject:
     """Action payload.
 
     Returns:
@@ -100,8 +100,11 @@ def action_payload(action: str, requested: int, info: JsonObject) -> JsonObject:
         ValidationError: When the requested operation cannot be completed.
     """
     if action == DND_ACTION:
+        if not time_zone:
+            msg = "DND writes require --time-zone matching the NOTTY app's local schedule"
+            raise ValidationError(msg)
         try:
-            return load_api.dnd_payload(info, switch_dnd=requested)
+            return load_api.dnd_payload(info, time_zone=time_zone, switch_dnd=requested)
         except load_api.NottyApiError as exc:
             raise ValidationError(str(exc)) from exc
     return {"switch": requested}
@@ -129,7 +132,9 @@ class SettingPlan:
     payload: JsonObject
 
 
-def _setting_plan(device_id: str, action: str, value: str | None, before: JsonObject) -> SettingPlan:
+def _setting_plan(
+    device_id: str, action: str, value: str | None, before: JsonObject, *, time_zone: str | None = None
+) -> SettingPlan:
     if action not in SETTINGS or not load_api.matches_value(value, ("on", "off")):
         message = "Select child-lock or dnd and specify --state on/off"
         raise ValidationError(message)
@@ -140,7 +145,7 @@ def _setting_plan(device_id: str, action: str, value: str | None, before: JsonOb
         message = f"Current {field} is unknown; no write performed"
         raise ValidationError(message)
     return SettingPlan(
-        device_id, action, str(value), endpoint, field, requested, current, action_payload(action, requested, before)
+        device_id, action, str(value), endpoint, field, requested, current, action_payload(action, requested, before, time_zone=time_zone)
     )
 
 
@@ -161,13 +166,20 @@ def _confirm_write(plan: SettingPlan, before: JsonObject, hooks: ValidationHooks
         raise ValidationError(message)
 
 
-async def _read_back(api: NottyApi, plan: SettingPlan, sleep: Callable[[float], Awaitable[None]]) -> int:
+async def _read_back(
+    api: NottyApi, plan: SettingPlan, before: JsonObject, sleep: Callable[[float], Awaitable[None]]
+) -> int:
     for _ in range(3):
         await sleep(4)
         after = await api.litter_info(plan.device_id)
         if isinstance(after, dict) and str(after.get("user_device_id")) == plan.device_id:
             console("AFTER:", json.dumps(status(after), sort_keys=True))
             if state_number(after.get(plan.field)) == plan.requested:
+                if plan.action == DND_ACTION and any(
+                    after.get(key) != before.get(key) for key in ("dnd_begin_time", "dnd_end_time", "led")
+                ):
+                    console("DND SCHEDULE CHANGED: readback differs; do not retry the write automatically")
+                    return 1
                 if plan.current == plan.requested:
                     console("SAME-STATE ACK: endpoint accepted; no state transition demonstrated")
                 else:
@@ -178,7 +190,14 @@ async def _read_back(api: NottyApi, plan: SettingPlan, sleep: Callable[[float], 
 
 
 async def validate(
-    api: NottyApi, *, device_id: str, action: str, value: str | None, execute: bool, **hooks: Unpack[ValidationHooks]
+    api: NottyApi,
+    *,
+    device_id: str,
+    action: str,
+    value: str | None,
+    execute: bool,
+    time_zone: str | None = None,
+    **hooks: Unpack[ValidationHooks]
 ) -> int:
     """Validate one selected setting or print a read-only plan.
 
@@ -201,7 +220,7 @@ async def validate(
             message = "Status only supports read-only mode"
             raise ValidationError(message)
         return 0
-    plan = _setting_plan(device_id, action, value, before)
+    plan = _setting_plan(device_id, action, value, before, time_zone=time_zone)
     printable: JsonObject = {
         "action": action,
         "from": plan.current,
@@ -218,7 +237,7 @@ async def validate(
     # Exactly one write; confirmation does not authorize retries or alternate payloads.
     await api.litter_action(device_id, plan.endpoint, plan.payload)
     console("WRITE REQUEST RETURNED: checking read-back (not proof of physical behavior)")
-    return await _read_back(api, plan, hooks.get("sleep", asyncio.sleep))
+    return await _read_back(api, plan, before, hooks.get("sleep", asyncio.sleep))
 
 
 async def run(args: ValidationOptions) -> int:
@@ -238,7 +257,14 @@ async def run(args: ValidationOptions) -> int:
             email=saved_strings.get("email"),
             region_code=saved_strings.get("region_code", "NL"),
         )
-        return await validate(api, device_id=args.device_id, action=args.action, value=args.state, execute=args.execute)
+        return await validate(
+            api,
+            device_id=args.device_id,
+            action=args.action,
+            value=args.state,
+            execute=args.execute,
+            time_zone=args.time_zone,
+        )
 
 
 @dataclass
@@ -250,6 +276,7 @@ class ValidationOptions:
     action: str
     state: str | None = None
     execute: bool = False
+    time_zone: str | None = None
 
 
 def main() -> int:
@@ -263,6 +290,9 @@ def main() -> int:
     parser.add_argument("--device-id", required=True, help="Physical user_device_id")
     parser.add_argument("action", choices=("status", "child-lock", "dnd"), nargs="?", default="status")
     parser.add_argument("--state", choices=("on", "off"))
+    parser.add_argument(
+        "--time-zone", help="IANA timezone shown by the NOTTY app (required for DND writes)"
+    )
     parser.add_argument(
         "--execute", action="store_true", help="Allow one real settings write after a typed confirmation"
     )
