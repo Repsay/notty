@@ -17,6 +17,7 @@ from custom_components.notty.models import DeviceData, NottyConfigEntry
 DEVICE_TYPE_LITTER_BOX = "litter_box"
 SOURCE_PET = "pet"
 MIN_TIME_PARTS = 2
+FIELD_DND_BEGIN = "dnd_begin_time"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -107,10 +108,10 @@ class NottyTime(NottyEntity, TimeEntity):
         Raises:
             HomeAssistantError: When the requested operation cannot be completed.
         """
+        current = merged_device_data(self.block)
+        local_zone = self.coordinator.hass.config.time_zone
         try:
-            current = merged_device_data(self.block)
-            local_zone = self.coordinator.hass.config.time_zone
-            if self.entity_description.key == "dnd_begin_time":
+            if self.entity_description.key == FIELD_DND_BEGIN:
                 data = dnd_payload(
                     current, time_zone=local_zone, input_time_zone=local_zone, dnd_begin_time=_format_time(value)
                 )
