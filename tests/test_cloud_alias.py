@@ -86,7 +86,11 @@ async def test_cloud_rename_preserves_registry_identity_and_user_override(
     numeric_device(runtime_api)
     entry = await setup(hass)
     registry = async_get_device_registry(hass)
-    device = registry.async_get_device_by_identifier(("notty", "123"), entry.entry_id)
+    device = (
+        registry.async_get_device_by_identifier(("notty", "123"), entry.entry_id)
+        if hasattr(registry, "async_get_device_by_identifier")
+        else registry.async_get_device(identifiers={("notty", "123")})
+    )
     registry.async_update_device(device.id, name_by_user=EXPECTED_OVERRIDE)
     entities = async_get_entity_registry(hass)
     registered = entities.async_get(ENTITY)
@@ -194,7 +198,11 @@ async def test_app_rename_updates_cloud_field_and_registry_without_ha_override_l
     runtime_api.device_info.return_value["alias"] = "Old Info"
     entry = await setup(hass)
     registry = async_get_device_registry(hass)
-    device = registry.async_get_device_by_identifier(("notty", "123"), entry.entry_id)
+    device = (
+        registry.async_get_device_by_identifier(("notty", "123"), entry.entry_id)
+        if hasattr(registry, "async_get_device_by_identifier")
+        else registry.async_get_device(identifiers={("notty", "123")})
+    )
     registry.async_update_device(device.id, name_by_user=EXPECTED_OVERRIDE)
     runtime_api.devices.return_value[0]["alias"] = EXPECTED_ALIAS
     await entry.runtime_data.async_refresh()
@@ -210,7 +218,11 @@ async def test_missing_alias_recovers_without_a_reload(hass: HomeAssistant, runt
     numeric_device(runtime_api)
     runtime_api.devices.return_value[0]["alias"] = None
     entry = await setup(hass)
-    unavailable = [state for state in hass.states.async_all("text") if state.state == EXPECTED_UNAVAILABLE]
+    unavailable = [
+        state
+        for state in hass.states.async_all("text")
+        if state.state == EXPECTED_UNAVAILABLE and state.entity_id.endswith("_cloud_name")
+    ]
     assert len(unavailable) == 1
     runtime_api.devices.return_value[0]["alias"] = EXPECTED_ALIAS
     await entry.runtime_data.async_refresh()

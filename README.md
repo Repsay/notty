@@ -42,17 +42,17 @@ Only fields returned by the account/device are exposed. The coordinator polls ev
 | Sensors | Litter box state, cleaning counts, pet weight/usage, event times, duration statistics, reminders and related data |
 | Binary sensors | Connectivity, locks and reported boolean settings |
 | Buttons | Clean, level, empty, reminder resets, weight reset and calibration |
-| Switches | Child lock, Do Not Disturb, litter-renewal reminder and trash-bag reminder |
-| Actions | List and manage fixed-clock cleaning plans with explicit plan IDs |
+| Switches | Child lock, Do Not Disturb, reminders, pet neutered state and account notification preferences |
+| Actions | Cleaning plans, pet profiles/associations/memos, notification preferences and explicitly confirmed statistics deletion |
 | Selects | Cleaning mode, automatic cleaning delay, known screen languages and reminder intervals |
 | Time | Do Not Disturb start/end |
-| Text | NOTTY cloud device name, independent of your HA display-name override |
-| Update | Read-only firmware versions, availability and release-note summary |
+| Text / Date | Cloud device name, pet name and pet birthday; HA display-name overrides are preserved |
+| Update | Firmware availability, release notes and explicit installation of a fresh eligible offered task |
 | Number | Pet weight, with existing litter-box binding preserved |
 
 Pet records become separate devices linked to the litter box. They do not receive litter-box command buttons. Known sensor fields use explicit units and device classes; unknown scalar fields remain ordinary sensors. Times and schedules are not guessed to be durations, and the weight-unit enum is not a weight measurement.
 
-The mode entity displays the APK-backed labels Auto (`1`), Scheduled (`2`) and Soft stool (`3`), with numeric fallback for unknown values. Mode writes remain blocked in the select and API; `set_mode` is no longer offered by the generic service while schedule setup and live mode behavior remain unverified.
+The mode entity displays the APK-backed labels Auto (`1`), Scheduled (`2`) and Soft stool (`3`), with numeric fallback for unknown values. The select and `set_mode` action support these three integer values. Writes require fresh matching physical-device identity and a known current mode; Scheduled also requires at least one enabled plan. Selecting the current mode skips the write. Live mode changes and automatic cleaning behavior still need owner validation.
 
 Automatic cleaning delay is available as a configuration select (1–15 minutes) when the device reports `auto_delay`. It is unavailable outside Auto mode, matching the app. Unknown delay values remain in the raw attributes without guessing a supported option.
 
@@ -97,11 +97,11 @@ validation. Capture and inspect its before/after response: device-local schedule
 interpretation may change even when raw clock strings stay the same. It never
 automatically rewrites DND or cleaning schedules. See [issue #21](https://github.com/Repsay/notty/issues/21).
 
-For physical litter boxes that report `open_litter_remind` or `open_garbagebag_remind`, configuration switches enable (`action=1`) or disable (`action=2`) each reminder using the reported configured interval (`default_remaining_days`: 5–30 days; `garbage_bag_cycle_time`: 2–15 days). **Both operations require `cycle_time`.** Owner tests on a real NOTTY device confirmed that action 1 enables the reminder and restarts its countdown, while action 2 disables it without changing the configured cycle. Unknown state or missing/invalid cycle data prevents writes. **The litter-renewal interval selector is enabled for an already enabled reminder:** an owner test confirmed that `action=3` changes the configured litter interval and updates the remaining countdown (30 → 29 days). Selecting the same interval skips the write. Reminder reset buttons and the trash-bag interval selector remain blocked, as their live semantics have not been established.
+For physical litter boxes that report `open_litter_remind` or `open_garbagebag_remind`, configuration switches enable (`action=1`) or disable (`action=2`) each reminder using the reported configured interval (`default_remaining_days`: 5–30 days; `garbage_bag_cycle_time`: 2–15 days). **Both operations require `cycle_time`.** Owner tests on a real NOTTY device confirmed that action 1 enables the reminder and restarts its countdown, while action 2 disables it without changing the configured cycle. Unknown state or missing/invalid cycle data prevents writes. **The litter-renewal interval selector is enabled for an already enabled reminder:** an owner test confirmed that `action=3` changes the configured litter interval and updates the remaining countdown (30 → 29 days). Selecting the same interval skips the write. Additional APK tracing establishes action 3 as the Reset choice for both reminder types. Reset buttons now preserve the configured cycle; the trash-bag interval select supports 2–15 days. Both require an enabled reminder and valid fresh cycle data. Same-cycle reset and trash-bag interval writes still need live validation.
 
 Two actions are also available in **Developer tools → Actions**: `notty.litter_box_one_key` and `notty.litter_box_action`. Their schemas are in [services.yaml](custom_components/notty/services.yaml). They require the **physical `user_device_id`**, not a pet ID. One-key codes are now traced from the APK: **clean=1, empty=2, level=3**. The former clean=0, level=1 and sterilize=3 mappings were incorrect. The unsupported sterilize button/action has been removed. Review existing automations, especially numeric one-key values: `1` cleans and `3` levels. Static request evidence does not confirm physical behavior; validate each operation individually before relying on automations.
 
-Reminder enable/disable is available through the configuration switches (both send the configured cycle, not the remaining-day countdown). `set_litter_reminder_days` supports a changed 5–30 day cycle when the device explicitly reports an enabled litter reminder. Generic reset and trash-bag interval actions still reject requests until verified against the live API.
+Reminder enable/disable is available through the configuration switches (both send the configured cycle, not the remaining-day countdown). `set_litter_reminder_days` supports a changed 5–30 day cycle when the device explicitly reports an enabled litter reminder. Generic reset and trash-bag interval actions use the same validated action-3 contract. A reset must supply the current configured cycle; it cannot silently change it.
 
 ## Sessions and troubleshooting
 
@@ -183,8 +183,7 @@ reported cloud name. An unchanged or rejected readback is never replaced with an
 optimistic value. The integration-provided device registry name follows cloud
 readback; your separate Home Assistant display-name override (`name_by_user`),
 physical device ID, entity unique IDs and existing entity IDs are preserved.
-Polling also reflects renames made in the official app. Pet names use a different
-API and have no cloud-device-name control.
+Polling also reflects renames made in the official app. Pet names use their own profile text entity and `/pet/save` API.
 
 The contract is traced from the APK and covered by synthetic tests, but a live
 rename has not been validated in this development session. See [alias evidence](docs/apk-cloud-alias.md).
@@ -200,12 +199,9 @@ no offered update. Missing or malformed metadata makes the entity unavailable;
 it does not mean the device is up to date. If the optional endpoint recovers
 after startup, the entity appears without reloading the integration.
 
-This is the read-only phase of [#22](https://github.com/Repsay/notty/issues/22).
-The entity offers no install action, automatic updates or progress percentage.
-Use the official NOTTY app to perform firmware updates. Raw task status is not
-proof of measured progress or a successful installation; only fresh version
-readback establishes the installed version. No physical device/model has been
-validated for this new entity yet. See [APK firmware evidence](docs/apk-firmware.md).
+The entity exposes installation only for an offered task with a usable task ID and a recognized idle/terminal status. An explicit HA update installation rechecks account ownership, device status, offered version and task before confirming it once. Requested versions must match the current offer; backup is unsupported. Full release notes are available in the update dialog.
+
+Progress is a Boolean tracking this HA session's requested target until fresh installed-version readback or a reported failure/cancellation. No percentage is fabricated. Tracking does not survive an HA restart and does not subscribe to the app's separate realtime firmware events. Unknown task states prevent installation. Firmware installation has not been live-tested; [#22](https://github.com/Repsay/notty/issues/22) remains open for model and lifecycle validation. See [APK firmware evidence](docs/apk-firmware.md).
 
 ## Cleaning plans
 
@@ -250,3 +246,23 @@ count. Missing IDs, IDs from another box, malformed list responses and extra fie
 are rejected. Successful writes refresh the coordinator and return fresh readback
 when a response is requested. No schedule actions run automatically during setup,
 polling or read-only probes. See [APK schedule evidence](docs/apk-schedules.md).
+
+## Pet editing and additional actions
+
+Existing pets have configuration controls for **name, sex, neutered state and birthday**. The `notty.pet_profile` action also edits breed using IDs from `operation: breeds`. Every profile write fetches current ownership, weight/unit, images and device bindings first, preserving all currently bound devices and leaving unbound candidates unbound. Shared pets are read-only. Profile changes and association changes are serialized per pet, and displayed values come from fresh cloud readback.
+
+Use these actions from **Developer tools → Actions**; request a response to inspect server IDs and readback:
+
+| Action | Operations / fields |
+| --- | --- |
+| `notty.pet_profile` | `pet_id`; `get`, `breeds`, or `update` with `changes` containing name, birthday (`YYYY-MM-DD`), sex (1/2), is_sterilization (Boolean), breed_id |
+| `notty.pet_association` | Physical `user_device_id`; `list`, `associate` or `disassociate`; changes require one explicit `pet_id` |
+| `notty.pet_memo` | `pet_id`; `list`, `detail`, `create` or `update`; detail/update require `memo_id`; changes contain title/content/date/remind |
+| `notty.notification_preferences` | Physical `user_device_id` selects the account; `list`, `block` or `unblock`; changes require a server-listed `message_type_id` |
+| `notty.clear_statistics` | Physical `user_device_id` plus `confirm_irreversible: true`; permanently deletes that device's statistics |
+
+Memo dates use the app's raw `YYYY-MM-DD HH:MM` wall clock; the integration does not infer a timezone. Creates default to no reminder; updates preserve omitted text and reminder fields. Memo attachments and pet creation/deletion are outside this release.
+
+Notification switches appear under a separate **NOTTY account** device. On means the category is unblocked. These are account-wide NOTTY litter-box preferences, affecting the official app rather than HA notifications. Feeders, water dispensers and their standalone LED controls are excluded. Litter-box DND continues to preserve its LED setting.
+
+These writes have APK-backed contracts and mocked HA tests. Read-only production checks found the breed catalog, owner profiles and five litter-box notification categories; they did not exercise new writes, memo details, firmware installation or irreversible statistics deletion. Follow the [validation checklist](docs/live-validation.md) before relying on them. Request evidence is in [pet and maintenance contracts](docs/apk-pet-maintenance.md).

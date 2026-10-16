@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 import pytest
 
 from custom_components.notty.api import LITTER_MODES, NottyApi, NottyApiError
@@ -93,16 +92,15 @@ async def test_unsupported_service_options_are_rejected(
 async def test_mode_labels_follow_ui_callers(
     hass: HomeAssistant, runtime_api: MagicMock, fixture: dict[str, object]
 ) -> None:
-    """Present only traced mode labels while retaining the existing write boundary."""
+    """Present traced labels and keep selecting the current mode a read-only no-op."""
     value = fixture["payload"]["mode"]
     runtime_api.device_info.return_value["mode"] = value
     await setup(hass)
     assert LITTER_MODES[value] == fixture["label"]
     assert hass.states.get("select.test_box_mode").state == fixture["label"]
-    with pytest.raises(HomeAssistantError, match="mode changes remain disabled"):
-        await hass.services.async_call(
-            "select", "select_option", {"entity_id": "select.test_box_mode", "option": fixture["label"]}, blocking=True
-        )
+    await hass.services.async_call(
+        "select", "select_option", {"entity_id": "select.test_box_mode", "option": fixture["label"]}, blocking=True
+    )
     runtime_api.litter_action.assert_not_awaited()
 
 
@@ -110,9 +108,10 @@ async def test_raw_mode_action_cannot_bypass_guard() -> None:
     """The lower-level API applies the same mode-write boundary as the select."""
     api = NottyApi(MagicMock())
     api.request = AsyncMock()
+    api.litter_info = AsyncMock(return_value={"user_device_id": 123})
     for value in (1, 2, 3):
-        with pytest.raises(NottyApiError, match="mode changes remain disabled"):
-            await api.litter_action("synthetic-box", "set_mode", {"mode": value})
+        with pytest.raises(NottyApiError, match="known current device mode"):
+            await api.litter_action("123", "set_mode", {"mode": value})
     api.request.assert_not_awaited()
 
 

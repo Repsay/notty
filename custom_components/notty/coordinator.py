@@ -27,6 +27,7 @@ from custom_components.notty.const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
+from custom_components.notty.device_features import NotificationApi
 from custom_components.notty.models import CoordinatorData, DeviceData, NottyConfigEntry
 
 TOILET_EVENT_TYPE_ID = 12
@@ -495,6 +496,7 @@ class NottyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self.api = api
         self._entry = entry
         self.entry_id = entry.entry_id if entry is not None else None
+        self.notification_categories: list[JsonObject] | None = None
 
     async def _async_update_data(self) -> CoordinatorData:
         try:
@@ -542,6 +544,7 @@ class NottyCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 _LOGGER.debug("Skipping NOTTY litter box without bound info payload: %s", device)
                 continue
             _merge_block(out, did, device, info, device_type)
+        await self._read_notification_categories(out)
         if self._entry is not None:
             previous_data = cast("JsonObject", self._entry.data)
             data = dict(previous_data)
@@ -557,6 +560,22 @@ class NottyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             if data != previous_data:
                 self.hass.config_entries.async_update_entry(self._entry, data=data)
         return out
+
+    async def _read_notification_categories(self, data: CoordinatorData) -> None:
+        physical = [block for block in data.values() if block["device"].get("_notty_source") != SOURCE_PET]
+        self.notification_categories = None
+        if not physical:
+            return
+        try:
+            self.notification_categories = await NotificationApi(self.api).categories()
+        except NottyAuthError:
+            raise
+        except NottyApiError:
+            _LOGGER.debug("Optional NOTTY notification preferences are unavailable")
+        # Include category changes in coordinator equality so preference-only changes
+        # notify listeners even when device and pet measurements remain unchanged.
+        for block in physical:
+            block["info"]["_notty_notification_categories"] = cast("JsonValue", self.notification_categories)
 
     async def _pet_info(self, device: JsonObject) -> JsonObject:
         pet_id = str(device.get("pet_id") or "").removeprefix("pet_")

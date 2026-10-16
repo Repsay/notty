@@ -1,27 +1,29 @@
 device_time_zone:
   name: Device time zone
-  description: List server-supported zones or explicitly change the device zone. Changes may reinterpret cleaning and DND schedule clocks. Catalog offsets describe standard time, not the current DST offset. Inspect the before/after response and verify in the app.
+  description: List server-supported zones or explicitly change the device zone. Changes may reinterpret cleaning and DND
+    schedule clocks. Catalog offsets describe standard time, not the current DST offset. Inspect the before/after response
+    and verify in the app.
   fields:
     user_device_id:
       required: true
       selector:
-        text:
+        text: null
     operation:
       required: true
       selector:
         select:
           options:
-            - list
-            - change
+          - list
+          - change
     catalog_id:
-      description: Exact server ID from the list response, such as W. Europe Standard Time. Do not substitute an IANA name or numeric offset.
+      description: Exact server ID from the list response, such as W. Europe Standard Time. Do not substitute an IANA name
+        or numeric offset.
       selector:
-        text:
+        text: null
     confirm_schedule_change:
       description: Required true for change, acknowledging that scheduled operations use the selected device local time.
       selector:
-        boolean:
-
+        boolean: null
 litter_box_one_key:
   name: Litter box one-key action
   description: Run one of the NOTTY app one-key litter box actions.
@@ -30,77 +32,178 @@ litter_box_one_key:
       name: User device ID
       required: true
       selector:
-        text:
+        text: null
     one_key:
       name: One-key action
       required: true
       selector:
         select:
           options:
-            - clean
-            - level
-            - empty
-
+          - clean
+          - level
+          - empty
 litter_box_action:
   name: Litter box action
-  description: Call a NOTTY litter box action or setting. The litter reminder interval action (set_litter_reminder_days) is available only for an enabled reminder and a changed valid cycle (5–30 days). Reset and trash-bag interval actions remain disabled.
+  description: Run a supported litter-box command or setting. Scheduled mode requires an enabled plan. Reminder resets use
+    action 3 with the configured cycle.
   fields:
     user_device_id:
       name: User device ID
       required: true
       selector:
-        text:
+        text: null
     action:
       name: Action
       required: true
       selector:
         select:
           options:
-            - one_key
-            - set_key
-            - reset_litter_reminder
-            - reset_garbage_bag_reminder
-            - set_litter_reminder_days
-            - set_garbage_bag_reminder_days
-            - set_dnd
-            - set_language
-            - reset_device_weight
-            - horizontal_calibration
+          - one_key
+          - set_mode
+          - set_key
+          - reset_litter_reminder
+          - reset_garbage_bag_reminder
+          - set_litter_reminder_days
+          - set_garbage_bag_reminder_days
+          - set_dnd
+          - set_language
+          - reset_device_weight
+          - horizontal_calibration
     data:
       name: Data
       required: false
       selector:
-        object:
-
+        object: null
 litter_box_schedule:
   name: Litter box cleaning schedules
-  description: List, create, update, enable, disable or delete a NOTTY cleaning plan. Times use the NOTTY schedule clock in HH:MM format, with no timezone conversion. Creating or enabling a plan may schedule cleaning; cleaning mode is left unchanged.
+  description: List, create, update, enable, disable or delete a NOTTY cleaning plan. Times use the NOTTY schedule clock in
+    HH:MM format, with no timezone conversion. Creating or enabling a plan may schedule cleaning; cleaning mode is left unchanged.
   fields:
     user_device_id:
       name: Physical user device ID
       required: true
       selector:
-        text:
+        text: null
     operation:
       name: Operation
       required: true
       selector:
         select:
           options:
-            - list
-            - create
-            - update
-            - enable
-            - disable
-            - delete
+          - list
+          - create
+          - update
+          - enable
+          - disable
+          - delete
     plan_id:
       name: Plan ID
       description: Required for update, enable, disable and delete. Obtain the exact ID with the list operation.
       selector:
-        text:
+        text: null
     time:
       name: NOTTY schedule clock
-      description: Required for create and update. Enter HH:MM as shown by the NOTTY schedule clock; do not use a timestamp or assume Home Assistant timezone conversion.
-      example: "06:30"
+      description: Required for create and update. Enter HH:MM as shown by the NOTTY schedule clock; do not use a timestamp
+        or assume Home Assistant timezone conversion.
+      example: 06:30
       selector:
-        text:
+        text: null
+pet_profile:
+  name: Pet profile
+  description: 'Read or edit an existing owned pet. Changes: name, birthday (YYYY-MM-DD), sex (1 male, 2 female), is_sterilization
+    (Boolean), breed_id from the breed catalog. Preserves weight, units, images and all bindings.'
+  fields:
+    pet_id: &id001
+      name: Pet ID
+      required: true
+      selector:
+        text: null
+    operation:
+      name: Operation
+      required: true
+      selector:
+        select:
+          options:
+          - get
+          - update
+          - breeds
+    changes: &id002
+      name: Changes
+      selector:
+        object: null
+pet_association:
+  name: Pet association
+  description: List or associate/disassociate one owned pet with an owned litter box. Preserves unrelated pets and bindings.
+  fields:
+    user_device_id: &id003
+      name: Physical litter-box ID
+      required: true
+      selector:
+        text: null
+    operation:
+      name: Operation
+      required: true
+      selector:
+        select:
+          options:
+          - list
+          - associate
+          - disassociate
+    pet_id:
+      name: Pet ID
+      required: false
+      selector:
+        text: null
+pet_memo:
+  name: Pet memo
+  description: 'List/read/create/edit pet text memos. Writes require ownership. Changes: title, content, date (YYYY-MM-DD
+    HH:MM in the NOTTY memo clock), remind (Boolean). Attachments are unsupported.'
+  fields:
+    pet_id: *id001
+    operation:
+      name: Operation
+      required: true
+      selector:
+        select:
+          options:
+          - list
+          - detail
+          - create
+          - update
+    memo_id:
+      name: Memo ID
+      required: false
+      selector:
+        text: null
+    changes: *id002
+notification_preferences:
+  name: NOTTY notification preferences
+  description: Read or block/unblock account-wide litter-box notification categories. The physical box selects the account.
+    These cloud preferences are separate from HA notifications.
+  fields:
+    user_device_id: *id003
+    operation:
+      name: Operation
+      required: true
+      selector:
+        select:
+          options:
+          - list
+          - block
+          - unblock
+    message_type_id:
+      name: Notification category ID
+      required: false
+      selector:
+        text: null
+clear_statistics:
+  name: Clear device statistics
+  description: Permanently delete the selected litter box’s cloud statistics. This cannot be undone. Sensors refresh afterward;
+    exact counter/history effects require owner validation.
+  fields:
+    user_device_id: *id003
+    confirm_irreversible:
+      name: Confirm irreversible deletion
+      required: true
+      selector:
+        boolean: null

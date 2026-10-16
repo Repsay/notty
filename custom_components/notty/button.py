@@ -7,7 +7,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from custom_components.notty.api import ONE_KEY_ACTIONS, REMINDER_CYCLE_FIELDS, NottyApiError, reminder_payload
+from custom_components.notty.api import (
+    ONE_KEY_ACTIONS,
+    REMINDER_CYCLE_FIELDS,
+    REMINDER_ENABLED_FIELDS,
+    NottyApiError,
+    plan_enabled,
+    reminder_payload,
+)
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.entity import NottyEntity, value_from_block
 from custom_components.notty.models import DeviceData, NottyConfigEntry
@@ -85,6 +92,27 @@ class NottyButton(NottyEntity, ButtonEntity):
         self.entity_description = description
         self._attr_translation_key = description.key
         self._attr_unique_id = f"{device_id}_{description.key}"
+
+    @property
+    def available(self) -> bool:
+        """Require an enabled reminder and configured cycle for its reset button.
+
+        Returns:
+            Whether the command can be attempted from current readback.
+        """
+        action = self.entity_description.key
+        if action not in REMINDER_CYCLE_FIELDS:
+            return super().available
+        if (
+            plan_enabled(value_from_block(self.block, REMINDER_ENABLED_FIELDS[REMINDER_CYCLE_FIELDS[action]]))
+            is not True
+        ):
+            return False
+        try:
+            reminder_payload(action, {"cycle_time": value_from_block(self.block, REMINDER_CYCLE_FIELDS[action])})
+        except NottyApiError:
+            return False
+        return super().available
 
     async def async_press(self) -> None:
         """Press the command or reset the reminder using its configured interval.

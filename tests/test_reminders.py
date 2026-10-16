@@ -61,11 +61,12 @@ async def test_wire_contract(reminder: Reminder, operation: int) -> None:
 @pytest.mark.parametrize(
     "action", ["reset_litter_reminder", "reset_garbage_bag_reminder", "set_garbage_bag_reminder_days"]
 )
-async def test_unverified_reminder_operations_do_not_write(action: str) -> None:
+async def test_reminder_edits_without_current_state_do_not_write(action: str) -> None:
     """Observed action 2 disables reminders and must not be reused for reset/update."""
     api = NottyApi(MagicMock())
     api.request = AsyncMock()
-    with pytest.raises(NottyApiError, match="disabled pending live endpoint verification"):
+    api.litter_info = AsyncMock(return_value={})
+    with pytest.raises(NottyApiError, match="enabled reminder"):
         await api.litter_action("box-1", action, {"cycle_time": 10})
     api.request.assert_not_awaited()
 
@@ -74,6 +75,7 @@ async def test_litter_interval_action_three_wire_contract() -> None:
     """Owner observed action 3 changing enabled litter interval from 30 to 29."""
     api = NottyApi(MagicMock())
     api.request = AsyncMock()
+    api.litter_info = AsyncMock(return_value={"open_litter_remind": True, "default_remaining_days": 30})
     await api.litter_action("box-1", "set_litter_reminder_days", {"cycle_time": 29})
     api.request.assert_awaited_once_with(
         "POST",
@@ -213,18 +215,18 @@ async def test_unknown_state_cannot_be_written(
         ("reset_garbage_bag_reminder", "garbage_bag_cycle_time", 7),
     ],
 )
-async def test_reset_button_is_blocked_until_verified(
+async def test_reset_button_uses_action_three_and_the_configured_cycle(
     hass: HomeAssistant, runtime_api: MagicMock, button: str, cycle_key: str, cycle: int
 ) -> None:
     """Action 2 disables the device; never use it for a reset button."""
     runtime_api.device_info.return_value[cycle_key] = cycle
+    runtime_api.device_info.return_value[
+        "open_litter_remind" if button == RESET_LITTER else "open_garbagebag_remind"
+    ] = True
     await setup(hass)
     entity_name = "reset_litter_renewal_reminder" if button == RESET_LITTER else "reset_trash_bag_reminder"
-    with pytest.raises(HomeAssistantError, match="disabled pending live endpoint verification"):
-        await hass.services.async_call(
-            "button", "press", {"entity_id": f"button.test_box_{entity_name}"}, blocking=True
-        )
-    runtime_api.litter_action.assert_not_awaited()
+    await hass.services.async_call("button", "press", {"entity_id": f"button.test_box_{entity_name}"}, blocking=True)
+    runtime_api.litter_action.assert_awaited_once_with("box-1", button, {"action": 3, "cycle_time": cycle})
     runtime_api.endpoint_action.assert_not_awaited()
 
 
@@ -337,7 +339,7 @@ async def test_generic_litter_interval_rejects_unchanged(hass: HomeAssistant, ru
 
 
 @pytest.mark.parametrize("reminder", REMINDERS)
-async def test_generic_reset_service_is_blocked(
+async def test_generic_reset_service_requires_an_explicit_cycle(
     hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
 ) -> None:
     """An existing cycle does not justify sending unverified reset action codes."""
@@ -345,7 +347,7 @@ async def test_generic_reset_service_is_blocked(
     reset_action = "reset_litter_reminder" if action == ACTION_LITTER else "reset_garbage_bag_reminder"
     runtime_api.device_info.return_value[cycle_key] = cycle
     await setup(hass)
-    with pytest.raises(HomeAssistantError, match="disabled pending live endpoint verification"):
+    with pytest.raises(HomeAssistantError, match="cycle_time"):
         await hass.services.async_call(
             "notty", "litter_box_action", {"user_device_id": "box-1", "action": reset_action}, blocking=True
         )
@@ -361,7 +363,7 @@ async def test_generic_reset_service_rejects_missing_interval(
     reset_action = "reset_litter_reminder" if action == ACTION_LITTER else "reset_garbage_bag_reminder"
     runtime_api.device_info.return_value["remaining_days"] = 12
     await setup(hass)
-    with pytest.raises(HomeAssistantError, match="disabled pending live endpoint verification"):
+    with pytest.raises(HomeAssistantError, match="cycle_time"):
         await hass.services.async_call(
             "notty", "litter_box_action", {"user_device_id": "box-1", "action": reset_action}, blocking=True
         )

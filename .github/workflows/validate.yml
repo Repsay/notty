@@ -21,6 +21,19 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy .
       - run: uv run pytest --cov=custom_components.notty --cov=scripts --cov-report=term-missing
+  minimum-home-assistant:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.14
+      - run: uv venv --python 3.14
+      # The nearest historical test harness pins 2026.3.1; explicitly override
+      # only HA to exercise our exact declared minimum, including its dependencies.
+      - run: |
+          echo 'homeassistant==2026.3.0' > /tmp/notty-ha-override.txt
+          uv pip install --override /tmp/notty-ha-override.txt 'pytest-homeassistant-custom-component==0.13.317' pytest-cov
+      - run: .venv/bin/pytest --cov=custom_components.notty --cov=scripts --cov-report=term-missing
   hassfest:
     runs-on: ubuntu-latest
     steps:

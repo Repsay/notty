@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, date, datetime, time
 import json
 import logging
@@ -14,6 +15,8 @@ HTTP_ERROR_STATUS = 400
 ACTION_ONE_KEY = "one_key"
 ACTION_SET_AUTO_DELAY = "set_auto_delay"
 ACTION_SET_ALIAS = "set_alias"
+ACTION_SET_LANGUAGE = "set_language"
+MODE_SCHEDULED = 2
 MIN_ALIAS_UNITS = 2
 MAX_ALIAS_UNITS = 8
 
@@ -37,6 +40,7 @@ ACTION_SET_MODE = "set_mode"
 DEVICE_TYPE_LITTER_BOX = "litter_box"
 ONE_KEY_ACTIONS = {"clean": 1, "empty": 2, "level": 3}
 LITTER_MODES = {1: "Auto", 2: "Scheduled", 3: "Soft stool"}
+SCREEN_LANGUAGES = {0: "Simplified Chinese", 1: "English", 2: "Traditional Chinese", 3: "Icons"}
 MAX_DELAY_MINUTES = 15
 
 type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
@@ -93,6 +97,7 @@ LITTER_ACTION_ENDPOINTS = {
 }
 SAFE_LITTER_ACTIONS = (
     "one_key",
+    "set_mode",
     "set_key",
     "reset_litter_reminder",
     "reset_garbage_bag_reminder",
@@ -117,6 +122,12 @@ REMINDER_DISABLE = 2
 REMINDER_UPDATE = 3
 REMINDER_LITTER_INTERVAL_ACTION = "set_litter_reminder_days"
 REMINDER_TOGGLE_ACTIONS = {"set_litter_remind", "set_garbage_bag_remind"}
+REMINDER_INTERVAL_ACTIONS = {"set_litter_reminder_days", "set_garbage_bag_reminder_days"}
+REMINDER_RESET_ACTIONS = {"reset_litter_reminder", "reset_garbage_bag_reminder"}
+REMINDER_ENABLED_FIELDS = {
+    "default_remaining_days": "open_litter_remind",
+    "garbage_bag_cycle_time": "open_garbagebag_remind",
+}
 
 LIST_KEYS = ("list", "devices", "rows", "items", "data")
 LITTER_BIND_KEYS = ("bind_litter_box", "litter_box", "litter_box_id", "litter_box_user_device_id", "lb_user_device_id")
@@ -344,8 +355,8 @@ def timezone_payload(device_id: str, catalog_id: str, rows: list[JsonObject]) ->
 def reminder_payload(action: str, data: JsonObject) -> JsonObject:
     """Build a validated reminder request using owner-observed live operation codes.
 
-    Litter interval changes (3) were verified on an already enabled reminder;
-    reset and trash-bag interval changes remain blocked pending live testing.
+    The app's Reset choice returns action 3; action 2 disables a reminder.
+    Changes and explicit resets carry the configured cycle, never remaining days.
 
     Returns:
         Only the validated operation and configured cycle, without read fields.
@@ -353,7 +364,7 @@ def reminder_payload(action: str, data: JsonObject) -> JsonObject:
     Raises:
         NottyApiError: If an action or configured interval is unverified.
     """
-    if action == REMINDER_LITTER_INTERVAL_ACTION:
+    if action in REMINDER_INTERVAL_ACTIONS | REMINDER_RESET_ACTIONS:
         operation = data.get("action", REMINDER_UPDATE)
         if type(operation) is not int or operation != REMINDER_UPDATE:
             msg = "Litter interval action must use action=3"
@@ -364,7 +375,7 @@ def reminder_payload(action: str, data: JsonObject) -> JsonObject:
             msg = "Reminder action must be an integer: enable=1, disable=2"
             raise NottyApiError(msg)
     else:
-        msg = "Reminder reset and trash bag interval changes are disabled pending live endpoint verification"
+        msg = "Unsupported reminder action"
         raise NottyApiError(msg)
     cycle = data.get("cycle_time")
     if isinstance(cycle, str) and cycle.isascii() and cycle.isdecimal():
@@ -525,6 +536,7 @@ class NottyTransport:
     """HTTP transport that propagates expired sessions without replaying requests."""
 
     def __init__(self, session: aiohttp.ClientSession, **options: Unpack[ConnectionOptions]) -> None:
+        self._mutation_locks: dict[str, asyncio.Lock] = {}
         self._session = session
         email = options.get("email")
         verification_code = options.get("verification_code")
@@ -536,6 +548,14 @@ class NottyTransport:
         self.user_id = str(user_id) if not matches_value(user_id, (None, "")) else None
         self.client_id = options.get("client_id", DEFAULT_CLIENT_ID)
         self.region_code = options.get("region_code", "NL")
+
+    def mutation_lock(self, scope: str) -> asyncio.Lock:
+        """Serialize read-modify-write operations across entity and service callers.
+
+        Returns:
+            The shared per-account lock for the selected pet or device scope.
+        """
+        return self._mutation_locks.setdefault(scope, asyncio.Lock())
 
     def _headers(self) -> dict[str, str]:
         headers = {
@@ -1298,20 +1318,74 @@ class NottyApi(NottyTimezoneApi):
 
         if action in PLAN_ACTIONS:
             return await self.manage_litter_plan(device_id, action, data or {})
+        if action == ACTION_SET_MODE:
+            return await self._change_mode(device_id, data or {})
         path = LITTER_ACTION_ENDPOINTS.get(action)
         if not path:
             msg = f"Unsupported litter box action: {action}"
             raise NottyApiError(msg)
         if action == ACTION_ONE_KEY:
             return await self.command(device_id, (data or {}).get(ACTION_ONE_KEY))
-        if action == ACTION_SET_MODE:
-            msg = "NOTTY mode changes remain disabled pending schedule prerequisites and live validation"
-            raise NottyApiError(msg)
-        settings = reminder_payload(action, data or {}) if action in REMINDER_CYCLE_FIELDS else (data or {})
+        payload = await self._setting_payload(device_id, action, data or {})
+        if payload is None:
+            return None
+        return await self.request("POST", path, data=payload)
+
+    async def _setting_payload(self, device_id: str, action: str, data: JsonObject) -> JsonObject | None:
+        settings = reminder_payload(action, data) if action in REMINDER_CYCLE_FIELDS else data
+        if action in REMINDER_RESET_ACTIONS | REMINDER_INTERVAL_ACTIONS and not await self._validate_reminder_edit(
+            device_id, action, settings
+        ):
+            return None
+        if action == ACTION_SET_LANGUAGE:
+            language = settings.get("language")
+            if set(settings) != {"language"} or type(language) is not int or language not in SCREEN_LANGUAGES:
+                msg = "Choose a supported NOTTY screen language"
+                raise NottyApiError(msg)
         payload = {**settings, **self._device_payload(device_id)}
         if action == ACTION_SET_AUTO_DELAY:
             delay = payload.get("delay")
             if type(delay) is not int or not 1 <= delay <= MAX_DELAY_MINUTES:
                 msg = "Automatic cleaning delay must be an integer from 1 to 15 minutes"
                 raise NottyApiError(msg)
-        return await self.request("POST", path, data=payload)
+        return payload
+
+    async def _change_mode(self, device_id: str, data: JsonObject) -> JsonValue:
+        mode = data.get("mode")
+        if set(data) != {"mode"} or type(mode) is not int or mode not in LITTER_MODES:
+            msg = "Choose Auto, Scheduled or Soft stool with no additional fields"
+            raise NottyApiError(msg)
+        if not device_id.isascii() or not device_id.isdecimal() or int(device_id) <= 0:
+            msg = "Mode changes require a positive numeric physical device ID"
+            raise NottyApiError(msg)
+        current = await self.litter_info(device_id)
+        if str(current.get("user_device_id")) != device_id:
+            msg = "Mode readback does not match the selected physical device"
+            raise NottyApiError(msg)
+        current_mode = current.get("mode")
+        if type(current_mode) is not int or current_mode not in LITTER_MODES:
+            msg = "Mode changes require known current device mode"
+            raise NottyApiError(msg)
+        if mode == current_mode:
+            return None
+        if mode == MODE_SCHEDULED and not any(
+            plan_enabled(row.get("open")) is True for row in await self.litter_plans(device_id)
+        ):
+            msg = "Scheduled mode requires at least one enabled cleaning plan"
+            raise NottyApiError(msg)
+        return await self.request(
+            "POST", "/device/litter_box/set_mode", data={"user_device_id": int(device_id), "mode": mode}
+        )
+
+    async def _validate_reminder_edit(self, device_id: str, action: str, settings: JsonObject) -> bool:
+        current = await self.litter_info(device_id)
+        cycle_field = REMINDER_CYCLE_FIELDS[action]
+        enabled = current.get(REMINDER_ENABLED_FIELDS[cycle_field])
+        cycle = current.get(cycle_field)
+        if plan_enabled(enabled) is not True or type(cycle) is not int or cycle not in REMINDER_DAY_RANGES[cycle_field]:
+            msg = "Reminder edits require an enabled reminder with a valid configured cycle"
+            raise NottyApiError(msg)
+        if action in REMINDER_RESET_ACTIONS and cycle != settings["cycle_time"]:
+            msg = "Reset must preserve the current configured cycle"
+            raise NottyApiError(msg)
+        return action in REMINDER_RESET_ACTIONS or cycle != settings["cycle_time"]

@@ -14,14 +14,15 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import sys
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import aiohttp
 
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from custom_components.notty.api import JsonObject, JsonValue
+if TYPE_CHECKING:
+    from custom_components.notty.api import JsonObject, JsonValue
 from scripts import probe_datapoints
 from scripts.console import console
 from scripts.validate_commands import load_session

@@ -9,6 +9,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from custom_components.notty.api import (
     ONE_KEY_ACTIONS,
     REMINDER_CYCLE_FIELDS,
+    REMINDER_DAY_RANGES,
+    REMINDER_ENABLED_FIELDS,
+    REMINDER_INTERVAL_ACTIONS,
     REMINDER_LITTER_INTERVAL_ACTION,
     SAFE_LITTER_ACTIONS,
     JsonObject,
@@ -34,6 +37,7 @@ from custom_components.notty.const import (
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.device_timezone import SERVICE_DEVICE_TIME_ZONE, register_timezone_service
 from custom_components.notty.entity import value_from_block
+from custom_components.notty.feature_services import FEATURE_SERVICES, register_feature_services
 from custom_components.notty.models import NottyConfigEntry
 from custom_components.notty.schedule import SERVICE_LITTER_BOX_SCHEDULE, register_schedule_service
 from custom_components.notty.validation import vol
@@ -64,14 +68,29 @@ def _get_coordinator(hass: HomeAssistant, user_device_id: str) -> NottyCoordinat
     raise HomeAssistantError(msg)
 
 
-def _validate_litter_interval_change(coordinator: NottyCoordinator, device_id: str, data: JsonObject) -> None:
+def _get_pet_coordinator(hass: HomeAssistant, pet_id: str) -> NottyCoordinator:
+    for entry in cast("list[NottyConfigEntry]", hass.config_entries.async_entries(DOMAIN)):
+        coordinator = cast("NottyCoordinator | None", getattr(entry, "runtime_data", None))
+        if isinstance(coordinator, NottyCoordinator) and any(
+            block["device"].get("_notty_source") == SOURCE_PET and str(block["device"].get("pet_id")) == pet_id
+            for block in coordinator.data.values()
+        ):
+            return coordinator
+    msg = "The pet was not found in a loaded NOTTY account"
+    raise HomeAssistantError(msg)
+
+
+def _validate_litter_interval_change(
+    coordinator: NottyCoordinator, device_id: str, data: JsonObject, action: str = REMINDER_LITTER_INTERVAL_ACTION
+) -> None:
     """Reject untested reminder states and no-op cycle writes.
 
     Raises:
         NottyApiError: If the target is not an enabled reminder with a valid changing interval.
     """
     block = coordinator.data[device_id]
-    enabled = value_from_block(block, "open_litter_remind")
+    cycle_field = REMINDER_CYCLE_FIELDS[action]
+    enabled = value_from_block(block, REMINDER_ENABLED_FIELDS[cycle_field])
     if not (
         enabled is True
         or (type(enabled) is int and enabled == 1)
@@ -79,10 +98,10 @@ def _validate_litter_interval_change(coordinator: NottyCoordinator, device_id: s
     ):
         msg = "Litter interval changes require an enabled reminder"
         raise NottyApiError(msg)
-    current_cycle = value_from_block(block, "default_remaining_days")
+    current_cycle = value_from_block(block, cycle_field)
     if isinstance(current_cycle, str) and current_cycle.isascii() and current_cycle.isdecimal():
         current_cycle = int(current_cycle)
-    if type(current_cycle) is not int or current_cycle not in range(5, 31):
+    if type(current_cycle) is not int or current_cycle not in REMINDER_DAY_RANGES[cycle_field]:
         msg = "Litter interval changes require a valid configured cycle"
         raise NottyApiError(msg)
     if data["cycle_time"] == current_cycle:
@@ -91,6 +110,7 @@ def _validate_litter_interval_change(coordinator: NottyCoordinator, device_id: s
 
 
 def _register_services(hass: HomeAssistant) -> None:
+    register_feature_services(hass, _get_coordinator, _get_pet_coordinator)
     register_schedule_service(hass, _get_coordinator)
 
     register_timezone_service(hass, _get_coordinator)
@@ -131,8 +151,8 @@ def _register_services(hass: HomeAssistant) -> None:
         try:
             if action in REMINDER_CYCLE_FIELDS:
                 action_data = reminder_payload(action, action_data)
-                if action == REMINDER_LITTER_INTERVAL_ACTION:
-                    _validate_litter_interval_change(coordinator, user_device_id, action_data)
+                if action in REMINDER_INTERVAL_ACTIONS:
+                    _validate_litter_interval_change(coordinator, user_device_id, action_data, action)
             await coordinator.api.litter_action(user_device_id, action, action_data)
         except NottyApiError as err:
             raise HomeAssistantError(str(err)) from err
@@ -209,6 +229,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: NottyConfigEntry) -> bo
         hass.services.async_remove(DOMAIN, SERVICE_LITTER_BOX_SCHEDULE)
 
         hass.services.async_remove(DOMAIN, SERVICE_DEVICE_TIME_ZONE)
+        for service in FEATURE_SERVICES:
+            hass.services.async_remove(DOMAIN, service)
     return unloaded
 
 
