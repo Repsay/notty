@@ -14,6 +14,6 @@ Work focused on sensor classification: time strings must not become numeric dura
 
 The provided files were in a new local Git repository with no commits or remotes, a blank README, and a placeholder Python CLI. The API, coordinator and seven platforms already existed. This conversion places them under `custom_components/notty`, adds HACS metadata, original brand icons, developer probes, value-free diagnostics, regression tests and GitHub validation workflows. It also guards against recursive authentication retries, adds reauthentication, and persists renewed access tokens.
 
-The code stores refresh tokens but does not implement Firebase's refresh-token exchange. Password-based recovery logs in again; code-only sessions need a new login after expiry. Claims of automatic refresh-token renewal in earlier summaries should therefore not be treated as verified functionality.
+The initial prototype stored refresh tokens without implementing their exchange and attempted speculative password-based recovery. The authentication follow-up removes those password/Firebase attempts: existing valid access tokens survive migration, obsolete credentials are removed, and expired sessions need a fresh email code. Claims of automatic refresh-token renewal in earlier summaries should therefore not be treated as verified functionality.
 
 Live authentication, response semantics, server time-zone assumptions, hardware command codes, and device compatibility remain unverified in this development session.
