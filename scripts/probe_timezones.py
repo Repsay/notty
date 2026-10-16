@@ -99,7 +99,7 @@ def catalog_report(response: JsonValue, *, find: str | None = None) -> JsonObjec
         report.update({
             "match_count": len(matches),
             "matches_truncated": len(matches) > MAX_MATCHES,
-            "matches": matches[:MAX_MATCHES],
+            "matches": cast("JsonValue", matches[:MAX_MATCHES]),
         })
     return report
 
