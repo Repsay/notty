@@ -73,6 +73,7 @@ async def test_unverified_reminder_operations_do_not_write(action: str) -> None:
         await api.litter_action("box-1", action, {"cycle_time": 10})
     api.request.assert_not_awaited()
 
+
 @pytest.mark.parametrize("cycle", [None, True, False, 1, 31, 3.5, "unknown", {}, []])
 async def test_invalid_interval_never_writes(cycle: object) -> None:
     """Refuse guessed defaults or remaining-day counters as interval replacements."""
@@ -199,6 +200,7 @@ async def test_reset_button_is_blocked_until_verified(
     runtime_api.litter_action.assert_not_awaited()
     runtime_api.endpoint_action.assert_not_awaited()
 
+
 @pytest.mark.usefixtures("runtime_api")
 async def test_unsupported_device_has_no_reminder_switch(hass: HomeAssistant) -> None:
     """Do not create controls for fields the device does not report."""
@@ -221,6 +223,7 @@ async def test_generic_reset_service_is_blocked(
             "notty", "litter_box_action", {"user_device_id": "box-1", "action": reset_action}, blocking=True
         )
     runtime_api.litter_action.assert_not_awaited()
+
 
 @pytest.mark.parametrize("reminder", REMINDERS)
 async def test_generic_reset_service_rejects_missing_interval(
