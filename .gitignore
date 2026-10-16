@@ -19,3 +19,6 @@ coverage.xml
 !.env.example
 probe-output/
 *.private.json
+
+# Local Android reverse-engineering inputs, scripts, and decoded output
+/apk/

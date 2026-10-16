@@ -1,0 +1,116 @@
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+indent-width = 4
+line-length = 120
+namespace-packages = ["alembic", "alembic/versions"]
+preview = true
+respect-gitignore = true
+target-version = "py314"
+force-exclude = true
+
+###########
+# formatting
+###########
+
+[format]
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+indent-style = "space"
+line-ending = "auto"
+quote-style = "double"
+skip-magic-trailing-comma = true
+
+
+###########
+# linting
+###########
+
+[lint]
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+fixable = ["ALL"]
+future-annotations = true
+select = ["ALL"]
+task-tags = ["TODO", "FIXME", "NOTE", "BUG", "OPTIMIZE", "HACK"]
+typing-extensions = false
+
+ignore = [
+  "line-too-long",
+  "missing-trailing-comma",
+  "assert",
+  "undocumented-public-module",
+  "undocumented-public-class",
+  "undocumented-public-package",
+  "undocumented-magic-method",
+  "undocumented-public-init",
+  "incorrect-blank-line-before-class",
+  "multi-line-summary-second-line",
+  "CPY",    # copyright
+  "typing-only-first-party-import",
+  "typing-only-third-party-import",
+  "typing-only-standard-library-import",
+]
+
+[lint.flake8-bandit]
+check-typed-exception = true
+
+[lint.flake8-builtins]
+strict-checking = true
+
+[lint.flake8-errmsg]
+max-string-length = 0
+
+[lint.flake8-type-checking]
+strict = true
+runtime-evaluated-base-classes = ["pydantic.BaseModel", "sqlalchemy.orm.DeclarativeBase"]
+runtime-evaluated-decorators = ["pydantic.validate_call", "attrs.define", "fastapi.FastAPI.get"]
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+split-on-trailing-comma = false
+
+[lint.pep8-naming]
+classmethod-decorators = ["field_validator", "declared_attr", "model_validator"]
+staticmethod-decorators = ["django.contrib.admin.display"]
+
+[lint.pydocstyle]
+convention = "google"
+ignore-decorators = ["typing.overload"]
+ignore-var-parameters = true
+
+[lint.pylint]
+allow-magic-value-types = []
+
+[lint.ruff]
+parenthesize-tuple-in-subscript = true

@@ -7,7 +7,7 @@ requires-python = ">=3.14.2"
 dependencies = ["aiohttp>=3.13.0"]
 
 [dependency-groups]
-dev = ["pytest-homeassistant-custom-component", "pytest-cov>=6", "ruff>=0.14", "pillow>=11"]
+dev = ["pytest-homeassistant-custom-component", "pytest-cov>=6", "ruff>=0.14", "pillow>=11", "mypy>=2"]
 
 [tool.uv]
 package = false
@@ -18,10 +18,3 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "--strict-markers"
-
-[tool.ruff]
-target-version = "py314"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I"]
