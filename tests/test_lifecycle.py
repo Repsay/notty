@@ -94,3 +94,47 @@ async def test_dnd_time_preserves_other_settings(hass, runtime_api):
     runtime_api.litter_action.assert_awaited_once_with(
         "box-1", "set_dnd", {"switch_dnd": 1, "dnd_begin_time": "21:30", "dnd_end_time": "07:00"}
     )
+
+
+async def test_live_shape_pet_binding_survives_merge(hass, runtime_api):
+    runtime_api.devices.return_value = [
+        {
+            "user_device_id": 9001,
+            "device_name": "Cat Automatic Litter Box",
+            "_notty_source": "device",
+            "_notty_pet_ids": ["101", "102"],
+        },
+        *[
+            {
+                "id": f"pet_{pet_id}",
+                "pet_id": pet_id,
+                "name": name,
+                "alias": name,
+                "device_type": "litter_box",
+                "bind_litter_box": True,
+                "_notty_source": "pet",
+                "_notty_litter_user_device_id": None,
+            }
+            for pet_id, name in ((101, "Alpha"), (102, "Beta"))
+        ],
+    ]
+    runtime_api.litter_related_info.return_value = {
+        "associated_pets": [
+            {"pet_id": 101, "name": "Alpha", "is_associated": True},
+            {"pet_id": 102, "name": "Beta", "is_associated": True},
+        ]
+    }
+    runtime_api.pet_related_info.side_effect = lambda pet_id: {
+        "info": {
+            "pet_id": int(pet_id),
+            "name": "Alpha" if pet_id == "101" else "Beta",
+            "weight": 4.2,
+            "pet_devices": [{"is_bind": True, "user_device_id": 9001, "device_id": 2}],
+        }
+    }
+    entry = await setup(hass)
+    for pet_id in (101, 102):
+        block = entry.runtime_data.data[f"pet_{pet_id}"]
+        assert block["device"]["_notty_litter_user_device_id"] == "9001"
+        assert block["info"]["litter_user_device_id"] == "9001"
+        assert block["info"]["pet_devices"][0]["user_device_id"] == 9001
