@@ -143,3 +143,42 @@ async def test_network_errors(failure):
     session.request.side_effect = failure
     with pytest.raises(NottyApiError):
         await NottyApi(session)._raw_request("GET", "https://api.nottycat.com/pet/list")
+
+
+async def test_boolean_pet_binding_resolves_from_discovered_physical_box():
+    api = NottyApi(MagicMock())
+    api.pets = AsyncMock(
+        return_value=[
+            {"pet_id": 101, "name": "Alpha", "bind_litter_box": True},
+            {"pet_id": 102, "name": "Beta", "bind_litter_box": True},
+        ]
+    )
+    api.user_devices = AsyncMock(
+        return_value=[
+            {
+                "user_device_id": 9001,
+                "device_name": "Cat Automatic Litter Box",
+                "_notty_source": "device",
+                "_notty_pet_ids": ["101", "102"],
+            }
+        ]
+    )
+    devices = await api.devices()
+    assert {device["id"]: device["_notty_litter_user_device_id"] for device in devices[1:]} == {
+        "pet_101": "9001",
+        "pet_102": "9001",
+    }
+
+
+def test_bound_pet_devices_prefer_physical_user_device_id():
+    pet = {
+        "bind_litter_box": True,
+        "pet_devices": [
+            {"is_bind": False, "user_device_id": 8888},
+            {"is_bind": True, "user_device_id": 9001, "device_id": 2},
+        ],
+    }
+    assert NottyApi._pet_litter_device_id(pet) == "9001"
+    assert (
+        NottyApi._pet_litter_device(pet | {"pet_id": 101})["_notty_litter_user_device_id"] == "9001"
+    )

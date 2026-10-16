@@ -415,9 +415,19 @@ def _merge_block(
     device_type: str,
 ) -> None:
     existing = blocks.get(device_id, {})
+    merged_device = {**existing.get("device", {}), **device}
+    merged_info = {**existing.get("info", {}), **info}
+    # Account discovery can contain a null parent even when the physical box
+    # has already supplied an associated-pet row with a valid parent.
+    for merged, previous, key in (
+        (merged_device, existing.get("device", {}), "_notty_litter_user_device_id"),
+        (merged_info, existing.get("info", {}), "litter_user_device_id"),
+    ):
+        if not merged.get(key) and previous.get(key):
+            merged[key] = previous[key]
     blocks[device_id] = {
-        "device": {**existing.get("device", {}), **device},
-        "info": {**existing.get("info", {}), **info},
+        "device": merged_device,
+        "info": merged_info,
         "type": device_type,
     }
 
@@ -515,6 +525,16 @@ class NottyCoordinator(DataUpdateCoordinator[dict]):
                         "_notty_related": related,
                     }
                     _merge_scalar_fields(info, device)
+                    related_info = related.get("info")
+                    if isinstance(related_info, dict):
+                        pet_devices = related_info.get("pet_devices")
+                        if isinstance(pet_devices, list):
+                            # Keep the raw binding list for safe pet-weight writes.
+                            info["pet_devices"] = pet_devices
+                            linked_id = NottyApi._pet_litter_device_id({"pet_devices": pet_devices})
+                            if linked_id:
+                                device["_notty_litter_user_device_id"] = linked_id
+                                info["litter_user_device_id"] = linked_id
                 else:
                     info = await self.api.device_info(did, device_type)
                     if device_type == "litter_box":
