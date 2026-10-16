@@ -11,7 +11,7 @@ import pytest
 
 from custom_components.notty.coordinator import NOTTY_SERVER_TIME_ZONE
 from custom_components.notty.sensor import FIELD_DEVICE_TIME_ZONE, sensor_keys, timezone_context
-from scripts.probe_timezones import TIME_ZONE_CATALOG_PATH, catalog_entries, catalog_report, collect_catalog
+from scripts.probe_timezones import MAX_MATCHES, TIME_ZONE_CATALOG_PATH, catalog_entries, catalog_report, collect_catalog
 from tests.test_lifecycle import setup
 
 LOCAL_ZONE = "Europe/Amsterdam"
@@ -19,6 +19,7 @@ OFFSET_KEY = "device_utc_offset_minutes"
 SAMPLE_CATALOG_SENTINEL = "private-token"
 CATALOG_DEVICE_ID = "52963"
 CATALOG_LIST_PATH = "$[]"
+EXPECTED_CATALOG_COUNT = 2
 EXPECTED_AMSTERDAM_CEST_OFFSET = 120
 EXPECTED_AMSTERDAM_CET_OFFSET = 60
 EXPECTED_NEW_YORK_EDT_OFFSET = -240
@@ -112,37 +113,40 @@ def test_catalog_inventory_does_not_include_response_values() -> None:
 def test_catalog_lookup_reveals_only_matching_server_provided_strings() -> None:
     """The catalog ID is an opaque string; never infer an IANA identifier."""
     response = [
-        {"id": "europe-amsterdam-1", "display_name": "Amsterdam", "offset": "+02:00", "ignored": "private"},
+        {"id": "europe-amsterdam-1", "display_name": "Amsterdam", "offset": "+02:00", "ignored": SAMPLE_CATALOG_SENTINEL},
         {"id": "new-york-2", "display_name": "New York", "offset": "-04:00"},
     ]
     result = catalog_report(response, find="Amsterdam")
-    assert result["entry_count"] == 2
+    assert result["entry_count"] == EXPECTED_CATALOG_COUNT
     assert result["match_count"] == 1
     assert result["matches"] == [
         {"id": "europe-amsterdam-1", "display_name": "Amsterdam", "offset": "+02:00"}
     ]
     assert result["matches_truncated"] is False
-    assert "private" not in json.dumps(result)
+    assert SAMPLE_CATALOG_SENTINEL not in json.dumps(result)
 
 
 @pytest.mark.parametrize(
-    "response",
+    ("response", "error_type"),
     [
-        {},
-        None,
-        ["bad-entry"],
-        [{"id": 3, "display_name": "Amsterdam", "offset": "+02:00"}],
-        [{"id": "one", "display_name": None, "offset": "+02:00"}],
-        [{"id": "one", "display_name": "Amsterdam", "offset": ""}],
-        [
-            {"id": "duplicate", "display_name": "Amsterdam", "offset": "+02:00"},
-            {"id": "duplicate", "display_name": "Another", "offset": "+03:00"},
-        ],
+        ({}, TypeError),
+        (None, TypeError),
+        (["bad-entry"], TypeError),
+        ([{"id": 3, "display_name": "Amsterdam", "offset": "+02:00"}], TypeError),
+        ([{"id": "one", "display_name": None, "offset": "+02:00"}], TypeError),
+        ([{"id": "one", "display_name": "Amsterdam", "offset": ""}], ValueError),
+        (
+            [
+                {"id": "duplicate", "display_name": "Amsterdam", "offset": "+02:00"},
+                {"id": "duplicate", "display_name": "Another", "offset": "+03:00"},
+            ],
+            ValueError,
+        ),
     ],
 )
-def test_catalog_rejects_malformed_entries(response: object) -> None:
+def test_catalog_rejects_malformed_entries(response: object, error_type: type[Exception]) -> None:
     """No device timezone options are guessed from malformed responses."""
-    with pytest.raises(ValueError):
+    with pytest.raises(error_type, match="Timezone catalog"):
         catalog_entries(response)
 
 
@@ -161,7 +165,7 @@ def test_catalog_match_output_bounded() -> None:
     result = catalog_report(catalog, find="Zone")
     assert result["match_count"] == len(catalog)
     assert result["matches_truncated"] is True
-    assert len(result["matches"]) == 10
+    assert len(result["matches"]) == MAX_MATCHES
 
 
 async def test_catalog_probe_sends_only_one_read_request() -> None:
