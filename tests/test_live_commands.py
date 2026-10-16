@@ -110,14 +110,13 @@ async def test_not_idle_prevents_write() -> None:
 
 def test_dnd_write_preserves_existing_window_and_rejects_zero_length() -> None:
     """Verify dnd write preserves existing window and rejects zero length."""
-    assert action_payload("dnd", 0, {"led": 0, "dnd_begin_time": "10:00", "dnd_end_time": "12:00"}, time_zone="Asia/Shanghai") == {
-        "switch": 0,
-        "led": 0,
-        "dnd_begin_time": "10:00",
-        "dnd_end_time": "12:00",
-    }
+    assert action_payload(
+        "dnd", 0, {"led": 0, "dnd_begin_time": "10:00", "dnd_end_time": "12:00"}, time_zone="Asia/Shanghai"
+    ) == {"switch": 0, "led": 0, "dnd_begin_time": "10:00", "dnd_end_time": "12:00"}
     with pytest.raises(ValidationError, match="identical"):
-        action_payload("dnd", 1, {"led": 2, "dnd_begin_time": "00:00", "dnd_end_time": "00:00"}, time_zone="Asia/Shanghai")
+        action_payload(
+            "dnd", 1, {"led": 2, "dnd_begin_time": "00:00", "dnd_end_time": "00:00"}, time_zone="Asia/Shanghai"
+        )
 
 
 async def test_dnd_missing_led_prevents_even_a_planned_write() -> None:
@@ -158,9 +157,7 @@ async def test_live_dnd_same_state_write_detects_shifted_schedule() -> None:
     )
     assert result == 1
     api.litter_action.assert_awaited_once_with(
-        "9999",
-        "set_dnd",
-        {"switch": 1, "led": 2, "dnd_begin_time": "07:00", "dnd_end_time": "22:00"},
+        "9999", "set_dnd", {"switch": 1, "led": 2, "dnd_begin_time": "07:00", "dnd_end_time": "22:00"}
     )
 
 
