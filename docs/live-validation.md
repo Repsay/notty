@@ -10,9 +10,11 @@ Start with read-only captures. This checklist is for the device owner; the autom
 6. Observe a normal disconnect/reconnect and an expired session. Check unavailable state, recovery, stored renewed token, and the reauthentication flow.
 6a. For timezone issue #21, run the **read-only**
    `uv run scripts/probe_timezones.py --session-file probe-output/session.pr30.private.json`
-   and inspect the value-free field/type inventory. A private raw capture can
-   establish the server-provided timezone IDs and actual catalog shape; do not
-   publish IDs, tokens, or private capture files. Verify the existing
+   to inspect the verified list-of-records schema (string `id`,
+   `display_name`, and `offset`). Add `--find Amsterdam` to show
+   matching public catalog entries, or save the full response privately
+   to investigate offset semantics. Do not publish tokens, unrelated
+   private data or raw capture files. Verify the existing
    `time_zone_iana` sensor reports the device IANA zone and keeps the
    distinct Home Assistant and NOTTY API clock-source assumptions. No
    `change_time_zone` write is enabled without independent validation.
