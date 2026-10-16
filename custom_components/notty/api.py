@@ -83,6 +83,18 @@ SAFE_LITTER_ACTIONS = (
     "reset_device_weight",
     "horizontal_calibration",
 )
+REMINDER_CYCLE_FIELDS = {
+    "set_litter_remind": "default_remaining_days",
+    "reset_litter_reminder": "default_remaining_days",
+    "set_litter_reminder_days": "default_remaining_days",
+    "set_garbage_bag_remind": "garbage_bag_cycle_time",
+    "reset_garbage_bag_reminder": "garbage_bag_cycle_time",
+    "set_garbage_bag_reminder_days": "garbage_bag_cycle_time",
+}
+REMINDER_DAY_RANGES = {"default_remaining_days": range(5, 31), "garbage_bag_cycle_time": range(2, 16)}
+REMINDER_DISABLE = 3
+REMINDER_RESET = 2
+
 LIST_KEYS = ("list", "devices", "rows", "items", "data")
 LITTER_BIND_KEYS = ("bind_litter_box", "litter_box", "litter_box_id", "litter_box_user_device_id", "lb_user_device_id")
 _LOGGER = logging.getLogger(__name__)
@@ -103,6 +115,32 @@ class NottyApiError(Exception):
 
 class NottyAuthError(NottyApiError):
     """Authentication failed."""
+
+
+def reminder_payload(action: str, data: JsonObject) -> JsonObject:
+    """Build the app's enable (1), reset/cycle (2), or disable (3) request.
+
+    Returns:
+        Validated operation fields without read-state names or unrelated settings.
+
+    Raises:
+        NottyApiError: If the operation or configured interval is unknown.
+    """
+    operation = data.get("action") if action in {"set_litter_remind", "set_garbage_bag_remind"} else REMINDER_RESET
+    if type(operation) is not int or operation not in {1, REMINDER_RESET, REMINDER_DISABLE}:
+        msg = "Reminder action must be an integer: enable=1, reset=2, disable=3"
+        raise NottyApiError(msg)
+    payload: JsonObject = {"action": operation}
+    if operation != REMINDER_DISABLE:
+        cycle = data.get("cycle_time")
+        if isinstance(cycle, str) and cycle.isascii() and cycle.isdecimal():
+            cycle = int(cycle)
+        allowed = REMINDER_DAY_RANGES[REMINDER_CYCLE_FIELDS[action]]
+        if type(cycle) is not int or cycle not in allowed:
+            msg = f"Reminder cycle_time must be an integer from {allowed.start} to {allowed.stop - 1} days"
+            raise NottyApiError(msg)
+        payload["cycle_time"] = cycle
+    return payload
 
 
 def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
@@ -1072,7 +1110,8 @@ class NottyApi(NottyTransport):
         if not path:
             msg = f"Unsupported litter box action: {action}"
             raise NottyApiError(msg)
-        payload = {**(data or {}), **self._device_payload(device_id)}
+        settings = reminder_payload(action, data or {}) if action in REMINDER_CYCLE_FIELDS else (data or {})
+        payload = {**settings, **self._device_payload(device_id)}
         if action == ACTION_ONE_KEY and ACTION_ONE_KEY not in payload:
             msg = "one_key action requires a one_key value"
             raise NottyApiError(msg)

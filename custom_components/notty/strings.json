@@ -62,6 +62,12 @@
       },
       "switch_dnd": {
         "name": "Do Not Disturb"
+      },
+      "open_litter_remind": {
+        "name": "Litter renewal reminder"
+      },
+      "open_garbagebag_remind": {
+        "name": "Trash bag reminder"
       }
     },
     "select": {
@@ -110,7 +116,7 @@
     },
     "litter_box_action": {
       "name": "Litter box action",
-      "description": "Call a verified NOTTY litter box action or setting endpoint with app-compatible data. Reminder day actions use data.cycle_time.",
+      "description": "Call a verified NOTTY litter box action or setting endpoint with app-compatible data. Reminder reset and interval actions require data.cycle_time and restart the countdown.",
       "fields": {
         "user_device_id": {
           "name": "User device ID"

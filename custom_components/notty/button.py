@@ -4,10 +4,12 @@ from dataclasses import dataclass
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from custom_components.notty.api import REMINDER_CYCLE_FIELDS, NottyApiError, reminder_payload
 from custom_components.notty.coordinator import NottyCoordinator
-from custom_components.notty.entity import NottyEntity
+from custom_components.notty.entity import NottyEntity, value_from_block
 from custom_components.notty.models import DeviceData, NottyConfigEntry
 
 SOURCE_PET = "pet"
@@ -82,11 +84,23 @@ class NottyButton(NottyEntity, ButtonEntity):
         self._attr_unique_id = f"{device_id}_{description.key}"
 
     async def async_press(self) -> None:
-        """Async press."""
+        """Press the command or reset the reminder using its configured interval.
+
+        Raises:
+            HomeAssistantError: If the reminder interval cannot be preserved.
+        """
         if self.entity_description.one_key is not None:
             await self.coordinator.api.command(
                 self.device_id, self.entity_description.one_key, self.entity_description.device_type
             )
+        elif self.entity_description.key in REMINDER_CYCLE_FIELDS:
+            action = self.entity_description.key
+            cycle = value_from_block(self.block, REMINDER_CYCLE_FIELDS[action])
+            try:
+                data = reminder_payload(action, {"cycle_time": cycle})
+            except NottyApiError as exc:
+                raise HomeAssistantError(str(exc)) from exc
+            await self.coordinator.api.litter_action(self.device_id, action, data)
         elif self.entity_description.endpoint:
             await self.coordinator.api.endpoint_action(self.device_id, self.entity_description.endpoint)
         await self.coordinator.async_request_refresh()
