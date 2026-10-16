@@ -30,6 +30,8 @@ TIME_ZONE_CATALOG_PATH = "/entity/get_time_zones"
 CATALOG_FIELDS = ("id", "display_name", "offset")
 MAX_MATCHES = 10
 MIN_FIND_LENGTH = 3
+MAX_TIMEZONE_TEXT_LENGTH = 128
+DEVICE_TIMEZONE_KEYS = ("time_zone_iana", "time_zone", "timezone", "time_zone_id", "timezone_id")
 
 
 def catalog_entries(response: JsonValue) -> list[JsonObject]:
@@ -113,6 +115,48 @@ async def collect_catalog(api: probe_datapoints.load_api.NottyApi) -> JsonValue:
     return await api.request("GET", TIME_ZONE_CATALOG_PATH)
 
 
+def device_timezone_fields(info: JsonObject) -> JsonObject:
+    """Select only public timezone-related fields, never device identifiers.
+
+    Returns:
+        A sanitized subset of known timezone attributes.
+    """
+    return {
+        key: value
+        for key in DEVICE_TIMEZONE_KEYS
+        if isinstance((value := info.get(key)), str) and 0 < len(value) <= MAX_TIMEZONE_TEXT_LENGTH
+    }
+
+
+async def inspect_device_timezone(api: probe_datapoints.load_api.NottyApi, device_id: str) -> JsonObject:
+    """Inspect timezone values on one account-owned device using reads only.
+
+    Returns:
+        A non-identifying report from the device listing and litter-box info.
+
+    Raises:
+        ValueError: If the requested device is not in the account's device list.
+    """
+    devices = await api.devices()
+    matched = next(
+        (
+            device
+            for device in devices
+            if device.get("_notty_source") != "pet"
+            and str(device.get("user_device_id") or device.get("device_id") or "") == device_id
+        ),
+        None,
+    )
+    if matched is None:
+        msg = "Requested litter box does not match an account device"
+        raise ValueError(msg)
+    info = await api.litter_info(device_id)
+    return {
+        "device_listing": device_timezone_fields(matched),
+        "litter_box_info": device_timezone_fields(info),
+    }
+
+
 @dataclass
 class TimezoneProbeOptions:
     """Read-only timezone probe arguments."""
@@ -120,6 +164,7 @@ class TimezoneProbeOptions:
     session_file: Path
     capture_raw: Path | None = None
     find: str | None = None
+    device_id: str | None = None
 
 
 async def run(options: TimezoneProbeOptions) -> JsonObject:
@@ -146,9 +191,13 @@ async def run(options: TimezoneProbeOptions) -> JsonObject:
             session, token=token, user_id=user_id, region_code=str(session_data.get("region_code") or "NL")
         )
         response = await collect_catalog(api)
+        device_report = await inspect_device_timezone(api, options.device_id) if options.device_id else None
     if options.capture_raw:
         probe_datapoints.write_json(options.capture_raw, {"time_zones": response})
-    return catalog_report(response, find=options.find)
+    report = catalog_report(response, find=options.find)
+    if device_report is not None:
+        report["device_timezone_fields"] = device_report
+    return report
 
 
 def main() -> int:
@@ -161,6 +210,7 @@ def main() -> int:
     parser.add_argument("--session-file", type=Path, required=True, help="Owner-only *.private.json session")
     parser.add_argument("--capture-raw", type=Path, help="Save response locally to a new *.private.json file")
     parser.add_argument("--find", help="Print up to 10 catalog entries matching an ID or display name")
+    parser.add_argument("--device-id", help="Read timezone fields from one of your listed litter boxes (read-only)")
     options = cast("TimezoneProbeOptions", parser.parse_args())
     try:
         console(json.dumps(asyncio.run(run(options)), indent=2))
