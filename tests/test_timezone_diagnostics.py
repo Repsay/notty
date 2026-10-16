@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.core import HomeAssistant
 import pytest
 
 from custom_components.notty.coordinator import NOTTY_SERVER_TIME_ZONE
-from custom_components.notty.sensor import sensor_keys, timezone_context
+from custom_components.notty.sensor import FIELD_DEVICE_TIME_ZONE, sensor_keys, timezone_context
 from scripts.probe_timezones import TIME_ZONE_CATALOG_PATH, catalog_report, collect_catalog
 from tests.test_lifecycle import setup
 
+LOCAL_ZONE = "Europe/Amsterdam"
+OFFSET_KEY = "device_utc_offset_minutes"
+CATALOG_SECRET = "private-token"
+CATALOG_DEVICE_ID = "52963"
+CATALOG_LIST_PATH = "data[]"
 EXPECTED_AMSTERDAM_CEST_OFFSET = 120
 EXPECTED_AMSTERDAM_CET_OFFSET = 60
 EXPECTED_NEW_YORK_EDT_OFFSET = -240
@@ -59,23 +65,23 @@ def test_timezone_context_accounts_for_independent_dst_transitions(
 @pytest.mark.parametrize("invalid", [None, False, 8, "", "Not/ARealZone"])
 def test_unknown_device_timezone_is_not_guessed(invalid: object) -> None:
     """Invalid NOTTY values never silently become the HA timezone."""
-    context = timezone_context(invalid, "Europe/Amsterdam")
+    context = timezone_context(invalid, LOCAL_ZONE)
     assert context["device_iana_valid"] is False
-    assert "device_utc_offset_minutes" not in context
-    assert context["home_assistant_time_zone"] == "Europe/Amsterdam"
+    assert OFFSET_KEY not in context
+    assert context["home_assistant_time_zone"] == LOCAL_ZONE
 
 
 async def test_existing_timezone_sensor_displays_device_vs_ha(
     hass: HomeAssistant, runtime_api: MagicMock
 ) -> None:
     """Keep the existing sensor identity and expose diagnostic offsets."""
-    hass.config.time_zone = "Europe/Amsterdam"
-    runtime_api.device_info.return_value["time_zone_iana"] = "Europe/Amsterdam"
+    hass.config.time_zone = LOCAL_ZONE
+    runtime_api.device_info.return_value[FIELD_DEVICE_TIME_ZONE] = LOCAL_ZONE
     await setup(hass)
     state = hass.states.get("sensor.test_box_time_zone_iana")
     assert state is not None
-    assert state.state == "Europe/Amsterdam"
-    assert state.attributes["home_assistant_time_zone"] == "Europe/Amsterdam"
+    assert state.state == LOCAL_ZONE
+    assert state.attributes["home_assistant_time_zone"] == LOCAL_ZONE
     assert state.attributes["server_clock_assumption"] == NOTTY_SERVER_TIME_ZONE
     assert state.attributes["device_iana_valid"] is True
     assert state.attributes["device_minus_ha_offset_minutes"] == 0
@@ -86,27 +92,25 @@ def test_timezone_field_still_uses_generic_discovery() -> None:
     """The read-only timezone entity is created only when NOTTY reports it."""
     empty = {"device": {"alias": "box"}, "info": {"today_clean_count": 1}}
     found = {"device": {"time_zone_iana": "Europe/Amsterdam"}, "info": {"today_clean_count": 1}}
-    assert "time_zone_iana" not in sensor_keys(empty)
-    assert "time_zone_iana" in sensor_keys(found)
+    assert FIELD_DEVICE_TIME_ZONE not in sensor_keys(empty)
+    assert FIELD_DEVICE_TIME_ZONE in sensor_keys(found)
 
 
 def test_catalog_inventory_does_not_include_response_values() -> None:
     """A shareable report must not leak catalog IDs, tokens or private values."""
     response = {
         "data": [
-            {"id": 52963, "name": "Europe/Amsterdam", "secret": "private-token"},
+            {"id": int(CATALOG_DEVICE_ID), "name": LOCAL_ZONE, "secret": CATALOG_SECRET},
             {"id": 92001, "name": "America/New_York"},
         ]
     }
     result = catalog_report(response)
-    from json import dumps
-
-    text = dumps(result)
+    text = json.dumps(result)
     assert TIME_ZONE_CATALOG_PATH in text
-    assert "private-token" not in text
-    assert "Europe/Amsterdam" not in text
-    assert "52963" not in text
-    assert "data[]" in text
+    assert CATALOG_SECRET not in text
+    assert LOCAL_ZONE not in text
+    assert CATALOG_DEVICE_ID not in text
+    assert CATALOG_LIST_PATH in text
 
 
 async def test_catalog_probe_sends_only_one_read_request() -> None:
