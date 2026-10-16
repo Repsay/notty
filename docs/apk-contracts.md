@@ -62,6 +62,16 @@ The standalone `validate_commands.py` tool auto-uses a reported
 After any DND write it compares the entire LED/time window, not only the
 on/off state, and reports drift instead of auto-retrying.
 
+**Owner follow-up (2026-10-16):** Before the corrected write, the API
+reported DND `19:00–10:00`, corresponding to `13:00–04:00` Amsterdam
+time at the current +6-hour offset. The PR's live dry-run constructed
+`13:00–04:00` and an explicitly confirmed write returned the **same
+`19:00–10:00` readback**, with LED and enabled state unchanged.
+This verifies an actual no-drift roundtrip on this device in CEST.
+It does **not** restore the original desired `07:00–22:00` schedule:
+the user must set that schedule separately in the official NOTTY app.
+Future DST behavior and cross-region devices remain unverified.
+
 ## Automatic cleaning delay (#16)
 
 `SettingController` builds the delay picker at `0xc0b05c`: an unboxed integer loop
