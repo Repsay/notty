@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from custom_components.notty.api import REMINDER_CYCLE_FIELDS, NottyApiError, reminder_payload
+from custom_components.notty.api import ONE_KEY_ACTIONS, REMINDER_CYCLE_FIELDS, NottyApiError, reminder_payload
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.entity import NottyEntity, value_from_block
 from custom_components.notty.models import DeviceData, NottyConfigEntry
@@ -23,10 +23,13 @@ class NottyButtonDescription(ButtonEntityDescription):
 
 
 BUTTONS = (
-    NottyButtonDescription(key="clean", name="Clean", device_type="litter_box", one_key=0),
-    NottyButtonDescription(key="level", name="Level litter", device_type="litter_box", one_key=1),
-    NottyButtonDescription(key="empty", name="Empty litter", device_type="litter_box", one_key=2),
-    NottyButtonDescription(key="sterilize", name="Sterilize", device_type="litter_box", one_key=3),
+    NottyButtonDescription(key="clean", name="Clean", device_type="litter_box", one_key=ONE_KEY_ACTIONS["clean"]),
+    NottyButtonDescription(
+        key="level", name="Level litter", device_type="litter_box", one_key=ONE_KEY_ACTIONS["level"]
+    ),
+    NottyButtonDescription(
+        key="empty", name="Empty litter", device_type="litter_box", one_key=ONE_KEY_ACTIONS["empty"]
+    ),
     NottyButtonDescription(
         key="reset_litter_reminder",
         name="Reset litter renewal reminder",

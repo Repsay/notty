@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from custom_components.notty.api import JsonValue
+from custom_components.notty.api import LITTER_MODES, JsonValue
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.entity import NottyEntity, value_from_block
 from custom_components.notty.models import DeviceBlock, DeviceData, NottyConfigEntry
@@ -46,9 +46,8 @@ SELECTS = (
         name="Mode",
         action="set_mode",
         field="mode",
-        # Mode 1 is verified as Auto against the owner's NOTTY app.
-        # Remaining codes are unknown: do not publish guessed mode labels.
-        value_options={1: "Auto"},
+        # Read labels traced through app UI callers; writes still require live validation.
+        value_options=LITTER_MODES,
         fallback_key="lb_mode",
     ),
     NottySelectDescription(
@@ -205,10 +204,7 @@ class NottySelect(NottyEntity, SelectEntity):
             msg = "NOTTY litter interval changes require an enabled reminder and a valid configured cycle"
             raise HomeAssistantError(msg)
         if self.entity_description.key == FIELD_MODE:
-            msg = (
-                "NOTTY mode changes are disabled until remaining mode codes and "
-                "the set_mode endpoint have been verified"
-            )
+            msg = "NOTTY mode changes remain disabled pending schedule prerequisites and live validation"
             raise HomeAssistantError(msg)
         reverse = {label: value for value, label in self.entity_description.value_options.items()}
         if option not in reverse:
