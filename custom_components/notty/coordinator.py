@@ -329,10 +329,8 @@ def _litter_related_summary(
                     if isinstance(count, bool) or not isinstance(count, int):
                         continue
                     try:
-                        event_day = date(
-                            int(item["year"]), int(item["month"]), int(item["day"])
-                        )
-                    except (KeyError, ValueError, TypeError):
+                        event_day = date(int(item["year"]), int(item["month"]), int(item["day"]))
+                    except KeyError, ValueError, TypeError:
                         continue
                     if event_day <= local_today:
                         dated_counts.append((event_day, count))
