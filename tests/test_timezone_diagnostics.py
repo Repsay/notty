@@ -11,14 +11,14 @@ import pytest
 
 from custom_components.notty.coordinator import NOTTY_SERVER_TIME_ZONE
 from custom_components.notty.sensor import FIELD_DEVICE_TIME_ZONE, sensor_keys, timezone_context
-from scripts.probe_timezones import TIME_ZONE_CATALOG_PATH, catalog_report, collect_catalog
+from scripts.probe_timezones import TIME_ZONE_CATALOG_PATH, catalog_entries, catalog_report, collect_catalog
 from tests.test_lifecycle import setup
 
 LOCAL_ZONE = "Europe/Amsterdam"
 OFFSET_KEY = "device_utc_offset_minutes"
 SAMPLE_CATALOG_SENTINEL = "private-token"
 CATALOG_DEVICE_ID = "52963"
-CATALOG_LIST_PATH = "data[]"
+CATALOG_LIST_PATH = "$[]"
 EXPECTED_AMSTERDAM_CEST_OFFSET = 120
 EXPECTED_AMSTERDAM_CET_OFFSET = 60
 EXPECTED_NEW_YORK_EDT_OFFSET = -240
@@ -96,12 +96,10 @@ def test_timezone_field_still_uses_generic_discovery() -> None:
 
 def test_catalog_inventory_does_not_include_response_values() -> None:
     """A shareable report must not leak catalog IDs, tokens or private values."""
-    response = {
-        "data": [
-            {"id": int(CATALOG_DEVICE_ID), "name": LOCAL_ZONE, "secret": SAMPLE_CATALOG_SENTINEL},
-            {"id": 92001, "name": "America/New_York"},
-        ]
-    }
+    response = [
+        {"id": CATALOG_DEVICE_ID, "display_name": LOCAL_ZONE, "offset": "UTC+02:00", "secret": SAMPLE_CATALOG_SENTINEL},
+        {"id": "92001", "display_name": "America/New_York", "offset": "UTC-04:00"},
+    ]
     result = catalog_report(response)
     text = json.dumps(result)
     assert TIME_ZONE_CATALOG_PATH in text
@@ -109,6 +107,61 @@ def test_catalog_inventory_does_not_include_response_values() -> None:
     assert LOCAL_ZONE not in text
     assert CATALOG_DEVICE_ID not in text
     assert CATALOG_LIST_PATH in text
+
+
+def test_catalog_lookup_reveals_only_matching_server_provided_strings() -> None:
+    """The catalog ID is an opaque string; never infer an IANA identifier."""
+    response = [
+        {"id": "europe-amsterdam-1", "display_name": "Amsterdam", "offset": "+02:00", "ignored": "private"},
+        {"id": "new-york-2", "display_name": "New York", "offset": "-04:00"},
+    ]
+    result = catalog_report(response, find="Amsterdam")
+    assert result["entry_count"] == 2
+    assert result["match_count"] == 1
+    assert result["matches"] == [
+        {"id": "europe-amsterdam-1", "display_name": "Amsterdam", "offset": "+02:00"}
+    ]
+    assert result["matches_truncated"] is False
+    assert "private" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {},
+        None,
+        ["bad-entry"],
+        [{"id": 3, "display_name": "Amsterdam", "offset": "+02:00"}],
+        [{"id": "one", "display_name": None, "offset": "+02:00"}],
+        [{"id": "one", "display_name": "Amsterdam", "offset": ""}],
+        [
+            {"id": "duplicate", "display_name": "Amsterdam", "offset": "+02:00"},
+            {"id": "duplicate", "display_name": "Another", "offset": "+03:00"},
+        ],
+    ],
+)
+def test_catalog_rejects_malformed_entries(response: object) -> None:
+    """No device timezone options are guessed from malformed responses."""
+    with pytest.raises(ValueError):
+        catalog_entries(response)
+
+
+def test_catalog_search_requires_specific_filter() -> None:
+    """A short search should not accidentally reveal the entire catalog."""
+    with pytest.raises(ValueError, match="three characters"):
+        catalog_report([{"id": "X", "display_name": "Amsterdam", "offset": "+02:00"}], find="a")
+
+
+def test_catalog_match_output_bounded() -> None:
+    """A broad match is limited to ten results, not the full catalog."""
+    catalog = [
+        {"id": f"zone-{n}", "display_name": f"Europe Zone {n}", "offset": "+01:00"}
+        for n in range(16)
+    ]
+    result = catalog_report(catalog, find="Zone")
+    assert result["match_count"] == len(catalog)
+    assert result["matches_truncated"] is True
+    assert len(result["matches"]) == 10
 
 
 async def test_catalog_probe_sends_only_one_read_request() -> None:
