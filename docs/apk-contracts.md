@@ -79,10 +79,16 @@ independently established by the decoded APK paths.
   server messages requiring valid configured days (5–30 for litter, 2–15
   for trash bag).
 - `action=3`, **with** `cycle_time=30`: accepted on the **litter**
-  endpoint. Before and after, `open_litter_remind=true`,
-  `default_remaining_days=30`, and `remaining_days=30`. This tests
-  acceptance and preservation at a *full countdown*, but **cannot prove
-  a reset**. No action-3 write has been tested on the trash-bag endpoint.
+  endpoint while already at a 30-day countdown. All values remained 30;
+  this did not demonstrate a reset.
+- `action=3`, **with** `cycle_time=29`: accepted on the **litter**
+  endpoint while the reminder was enabled. Three consecutive readbacks
+  confirmed `open_litter_remind=true`, `default_remaining_days=29`,
+  and `remaining_days=29` (all were 30 before the request).
+  This establishes that action 3 changes the configured litter interval
+  **and** sets the remaining countdown to that interval. It does *not*
+  separately prove a same-cycle reset. Action 3 remains **untested for
+  trash bags**.
 
 The safe configuration switches now use `action=1` to enable and
 `action=2` to disable, **always** validating and sending the current
@@ -91,14 +97,18 @@ no-op switches never send a write. This preserves the configured cycle
 but does not preserve the *remaining countdown* when enabling; on the
 tested device, enabling restarted the countdown.
 
-The `reset_litter_reminder`, `reset_garbage_bag_reminder`,
-`set_litter_reminder_days`, and `set_garbage_bag_reminder_days`
-operations are temporarily **blocked at the API boundary**, including
-their exposed Home Assistant buttons, selects and generic action service.
-They must not send the previously assumed `action=2`, which disables
-a reminder. It is **not yet established** whether `action=3` with a
-valid `cycle_time` resets the countdown, changes the interval, or has
-other effects. Restore those operations only after observed live tests.
+The **litter renewal interval selector** and matching generic
+`set_litter_reminder_days` service now use the verified `action=3`
+with a supplied, validated `cycle_time` in the 5–30 day range. Only
+**enabled** reminders with a valid configured interval can be edited.
+Selecting the existing interval does not write, since the effect of an
+unchanged-cycle action 3 on a partially elapsed countdown is unverified.
+
+`reset_litter_reminder`, `reset_garbage_bag_reminder`, and
+`set_garbage_bag_reminder_days` remain **blocked at the API
+boundary**, including their HA reset buttons, the trash-bag interval
+selector and generic service. The original `action=2` assumption
+disabled reminders, and bag action 3 has not been tested live.
 
 
 ## Verification boundary
