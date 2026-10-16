@@ -33,7 +33,10 @@ SKIP_FLATTEN_KEYS = {
     "token",
 }
 NUMBER_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?")
-TOILET_DURATION_RE = re.compile(r"\bspent\s+(\d+)s\b", re.IGNORECASE)
+TOILET_DURATION_RE = re.compile(
+    r"\bspent\s+(?:(?P<minutes>\d+)m(?:\s+(?P<seconds>\d+)s)?|(?P<only_seconds>\d+)s)\b",
+    re.IGNORECASE,
+)
 
 
 def _timezone(name: str | None, fallback: str = "UTC") -> ZoneInfo:
@@ -114,7 +117,11 @@ def _toilet_event_summary(
         summary["latest_toilet_event_pet_name"] = text.split(" just spent ", 1)[0]
     duration_match = TOILET_DURATION_RE.search(text)
     if duration_match:
-        summary["latest_toilet_event_duration"] = int(duration_match.group(1))
+        minutes = int(duration_match.group("minutes") or 0)
+        seconds = int(
+            duration_match.group("seconds") or duration_match.group("only_seconds") or 0
+        )
+        summary["latest_toilet_event_duration"] = minutes * 60 + seconds
     return {key: value for key, value in summary.items() if value not in (None, "")}
 
 
