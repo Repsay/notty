@@ -17,6 +17,8 @@ from scripts.probe_timezones import (
     catalog_entries,
     catalog_report,
     collect_catalog,
+    device_timezone_fields,
+    inspect_device_timezone,
 )
 from tests.test_lifecycle import setup
 
@@ -178,6 +180,57 @@ def test_catalog_match_output_bounded() -> None:
     assert result["match_count"] == len(catalog)
     assert result["matches_truncated"] is True
     assert len(result["matches"]) == MAX_MATCHES
+
+
+def test_device_timezone_fields_never_exposes_identifiers() -> None:
+    """Only known timezone strings are copied into the shareable report."""
+    result = device_timezone_fields({
+        "user_device_id": CATALOG_DEVICE_ID,
+        "access_token": SAMPLE_CATALOG_SENTINEL,
+        "time_zone_iana": LOCAL_ZONE,
+        "time_zone_id": "W. Europe Standard Time",
+        "timezone": 3,
+    })
+    assert result == {"time_zone_iana": LOCAL_ZONE, "time_zone_id": "W. Europe Standard Time"}
+    assert CATALOG_DEVICE_ID not in json.dumps(result)
+    assert SAMPLE_CATALOG_SENTINEL not in json.dumps(result)
+
+
+async def test_device_timezone_inspection_uses_only_list_and_info_reads() -> None:
+    """Distinguish the selection catalog's Windows ID from device IANA fields."""
+    api = MagicMock()
+    api.devices = AsyncMock(return_value=[
+        {
+            "user_device_id": CATALOG_DEVICE_ID,
+            "time_zone_iana": LOCAL_ZONE,
+            "time_zone_id": "W. Europe Standard Time",
+            "alias": SAMPLE_CATALOG_SENTINEL,
+        }
+    ])
+    api.litter_info = AsyncMock(return_value={
+        "user_device_id": CATALOG_DEVICE_ID,
+        "time_zone_iana": LOCAL_ZONE,
+        "status_id": 1,
+    })
+    result = await inspect_device_timezone(api, CATALOG_DEVICE_ID)
+    assert result == {
+        "device_listing": {"time_zone_iana": LOCAL_ZONE, "time_zone_id": "W. Europe Standard Time"},
+        "litter_box_info": {"time_zone_iana": LOCAL_ZONE},
+    }
+    api.litter_info.assert_awaited_once_with(CATALOG_DEVICE_ID)
+    api.litter_action.assert_not_called()
+    assert SAMPLE_CATALOG_SENTINEL not in json.dumps(result)
+    assert CATALOG_DEVICE_ID not in json.dumps(result)
+
+
+async def test_timezone_inspection_rejects_unlisted_device_before_info_read() -> None:
+    """Refuse reads on devices absent from the user's account discovery."""
+    api = MagicMock()
+    api.devices = AsyncMock(return_value=[{"user_device_id": "different-device"}])
+    api.litter_info = AsyncMock()
+    with pytest.raises(ValueError, match="does not match"):
+        await inspect_device_timezone(api, CATALOG_DEVICE_ID)
+    api.litter_info.assert_not_awaited()
 
 
 async def test_catalog_probe_sends_only_one_read_request() -> None:
