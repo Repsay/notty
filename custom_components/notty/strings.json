@@ -116,7 +116,7 @@
     },
     "litter_box_action": {
       "name": "Litter box action",
-      "description": "Call a verified NOTTY litter box action or setting endpoint with app-compatible data. Reminder reset and interval actions require data.cycle_time and restart the countdown.",
+      "description": "Call a NOTTY litter box action or setting. Reminder reset and interval operations are disabled pending live verification.",
       "fields": {
         "user_device_id": {
           "name": "User device ID"
