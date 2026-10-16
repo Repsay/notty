@@ -14,4 +14,4 @@ CONF_FIREBASE_API_KEY = "firebase_api_key"
 CONF_REGION_CODE = "region_code"
 DEFAULT_REGION_CODE = "NL"
 DEFAULT_SCAN_INTERVAL = 60
-PLATFORMS = ["sensor", "binary_sensor", "button", "switch", "select", "time", "number"]
+PLATFORMS = ["sensor", "binary_sensor", "button", "switch", "select", "time", "number", "update"]

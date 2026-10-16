@@ -63,6 +63,11 @@
       "weight": {
         "default": "mdi:scale"
       }
+    },
+    "update": {
+      "firmware": {
+        "default": "mdi:chip"
+      }
     }
   },
   "services": {

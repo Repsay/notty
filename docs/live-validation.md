@@ -14,3 +14,5 @@ Start with read-only captures. This checklist is for the device owner; the autom
 9. Turn real responses into small synthetic test fixtures with invented IDs, names and timestamps. Keep tokens, account details, images, and raw captures out of Git/issues.
 
 Document the Home Assistant version, device model/firmware, account region, login method and each verified feature before describing a release as production ready.
+
+Firmware availability (#22): compare the update entity's installed/offered versions and release summary against the official app. Observe an explicit empty target versus an unavailable endpoint. If an update is performed in the official app, check that later polling reports the newly installed version. Installation and progress tracking are not implemented by this integration. Record model/firmware evidence before claiming support.

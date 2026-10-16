@@ -62,7 +62,6 @@ LITTER_ACTION_ENDPOINTS = {
     "open_plan": "/device/litter_box/open_plan",
     "reset_device_weight": "/device/litter_box/reset_device_weight",
     "horizontal_calibration": "/device/litter_box/horizontal_calibration",
-    "confirm_upgrade": "/device/confirm_upgrade",
     "set_alias": "/device/set_alias",
     "change_time_zone": "/device/change_time_zone",
     "clear_statistics": "/device/clear_statistics/",

@@ -37,6 +37,7 @@ Only fields returned by the account/device are exposed. The coordinator polls ev
 | Switches | Child lock, Do Not Disturb, litter-renewal reminder and trash-bag reminder |
 | Selects | Cleaning mode, automatic cleaning delay, known screen languages and reminder intervals |
 | Time | Do Not Disturb start/end |
+| Update | Read-only firmware versions, availability and release-note summary |
 | Number | Pet weight, with existing litter-box binding preserved |
 
 Pet records become separate devices linked to the litter box. They do not receive litter-box command buttons. Known sensor fields use explicit units and device classes; unknown scalar fields remain ordinary sensors. Times and schedules are not guessed to be durations, and the weight-unit enum is not a weight measurement.
@@ -110,3 +111,20 @@ See [development history](docs/development-history.md) and the [live validation 
 ## License
 
 MIT. NOTTY names and trademarks belong to their respective owners.
+
+## Firmware availability
+
+A **Firmware** update entity appears for each physical litter box that reports
+`src_version` and `dest_version` through NOTTY's upgrade-check endpoint. It shows
+the installed version, the offered version, a release-note summary (up to 255
+characters) and the cloud's raw `task_status`. An explicitly empty target means
+no offered update. Missing or malformed metadata makes the entity unavailable;
+it does not mean the device is up to date. If the optional endpoint recovers
+after startup, the entity appears without reloading the integration.
+
+This is the read-only phase of [#22](https://github.com/Repsay/notty/issues/22).
+The entity offers no install action, automatic updates or progress percentage.
+Use the official NOTTY app to perform firmware updates. Raw task status is not
+proof of measured progress or a successful installation; only fresh version
+readback establishes the installed version. No physical device/model has been
+validated for this new entity yet. See [APK firmware evidence](docs/apk-firmware.md).

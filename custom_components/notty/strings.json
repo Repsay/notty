@@ -98,6 +98,11 @@
       "weight": {
         "name": "Weight"
       }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
+      }
     }
   },
   "services": {
