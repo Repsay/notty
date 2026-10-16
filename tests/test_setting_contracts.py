@@ -136,7 +136,7 @@ def test_dnd_ha_edit_to_other_notty_device_timezone() -> None:
         "switch": 1,
         "led": 2,
         "dnd_begin_time": "02:00",
-        "dnd_end_time": "01:00",
+        "dnd_end_time": "16:00",
     }
 
 
