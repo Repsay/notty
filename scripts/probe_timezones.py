@@ -79,7 +79,6 @@ def catalog_report(response: JsonValue, *, find: str | None = None) -> JsonObjec
         requested, a bounded list of matching catalog IDs/names/offsets.
 
     Raises:
-        TypeError: If response field types are invalid.
         ValueError: If entries are malformed or the search is too short.
     """
     entries = catalog_entries(response)
