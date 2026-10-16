@@ -665,8 +665,8 @@ class NottyTransport:
         return {"user_device_id": device_id, "device_id": device_id}
 
 
-class NottyApi(NottyTransport):
-    """NOTTY account, litter-box and pet endpoints."""
+class NottyTimezoneApi(NottyTransport):
+    """Explicit device timezone operations sharing the authenticated transport."""
 
     async def time_zones(self) -> list[JsonObject]:
         """Read the supported catalog on explicit request.
@@ -686,6 +686,10 @@ class NottyApi(NottyTransport):
         return await self.request(
             "POST", "/device/change_time_zone", data=timezone_payload(device_id, catalog_id, rows)
         )
+
+
+class NottyApi(NottyTimezoneApi):
+    """NOTTY account, litter-box and pet endpoints."""
 
     @staticmethod
     def _find_first(result: JsonValue, keys: tuple[str, ...]) -> JsonValue:
