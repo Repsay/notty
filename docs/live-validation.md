@@ -12,9 +12,12 @@ Start with read-only captures. This checklist is for the device owner; the autom
    `uv run scripts/probe_timezones.py --session-file probe-output/session.pr30.private.json`
    to inspect the verified list-of-records schema (string `id`,
    `display_name`, and `offset`). Add `--find Amsterdam` to show
-   matching public catalog entries, or save the full response privately
-   to investigate offset semantics. Do not publish tokens, unrelated
-   private data or raw capture files. Verify the existing
+   matching public catalog entries. The live Amsterdam entry is
+   `W. Europe Standard Time` / `01:00:00` (standard offset).
+   Use the IANA timezone `Europe/Amsterdam` and its DST rules for
+   clock conversions; do not infer summer offsets from the catalog.
+   Do not publish tokens, unrelated private data or raw capture files.
+   Verify the existing
    `time_zone_iana` sensor reports the device IANA zone and keeps the
    distinct Home Assistant and NOTTY API clock-source assumptions. No
    `change_time_zone` write is enabled without independent validation.
