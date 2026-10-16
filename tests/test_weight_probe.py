@@ -94,6 +94,8 @@ async def test_collector_calls_get_only_and_scopes_history_to_bound_account_pets
     )
     replies: dict[str, JsonValue] = {
         "/pet/list": [{"pet_id": 7}, {"pet_id": 8}],
+        "/pet/info/7": {"pet_id": 7},
+        "/pet/info/8": {"pet_id": 8},
         "/device/get_associated_pets/123": [
             {"pet_id": 7, "is_associated": True},
             {"pet_id": 8, "is_associated": False},
@@ -161,3 +163,12 @@ def test_daily_weight_in_profile_response_is_still_a_measurement_candidate() -> 
     value["sources"][0]["data"]["today_weight"] = 4.1
     fields = weight_report.report(value)["sources"][0]["fields"]
     assert fields[-1]["role"] != EXPECTED_SETTING
+
+
+async def test_profile_for_a_different_pet_never_becomes_weight_evidence() -> None:
+    """A server identity mismatch cannot silently assign another cat's weight."""
+    api = MagicMock(request=AsyncMock(return_value={"pet_id": 8, "today_weight": 5.1}))
+    collector = probe_weights.WeightCollector(api)
+    await collector.read("pet[1].profile", "profile", "pet:7:profile", "/pet/info/7", pet_id="7")
+    assert not collector.sources
+    assert collector.errors

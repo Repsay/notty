@@ -86,6 +86,20 @@ def litter_box(device: JsonObject) -> bool:
     )
 
 
+def profile_identity_matches(value: JsonValue, pet_id: str) -> bool:
+    """Require profile identity before attributing its weights to a selected cat.
+
+    Returns:
+        Whether explicit response identity matches the requested account pet.
+    """
+    if not isinstance(value, dict):
+        return False
+    try:
+        return numeric_id(value.get("pet_id")) == pet_id
+    except ValueError:
+        return False
+
+
 class WeightCollector:
     """Collect fixed GET endpoints and retain failures in a private snapshot."""
 
@@ -94,7 +108,7 @@ class WeightCollector:
         self.sources: list[JsonValue] = []
         self.errors: list[JsonValue] = []
 
-    async def read(self, label: str, kind: str, identity: str, path: str) -> JsonValue:
+    async def read(self, label: str, kind: str, identity: str, path: str, *, pet_id: str | None = None) -> JsonValue:
         """Read one fixed route, keeping raw error bodies out of every output.
 
         Returns:
@@ -109,6 +123,9 @@ class WeightCollector:
             raise
         except probe_datapoints.load_api.NottyApiError:
             self.errors.append({"source": label, "error": "request_failed"})
+            return None
+        if pet_id is not None and not profile_identity_matches(data, pet_id):
+            self.errors.append({"source": label, "error": "profile_identity_mismatch_or_missing"})
             return None
         self.sources.append({"label": label, "kind": kind, "identity": identity, "data": data})
         return data
@@ -174,7 +191,9 @@ class WeightCollector:
             raise ValueError(msg)
         labels = {pet_id: f"pet[{index}]" for index, pet_id in enumerate(sorted(selected_pets, key=int), 1)}
         for pet_id, label in labels.items():
-            await self.read(f"{label}.profile", "profile", f"pet:{pet_id}:profile", f"/pet/info/{pet_id}")
+            await self.read(
+                f"{label}.profile", "profile", f"pet:{pet_id}:profile", f"/pet/info/{pet_id}", pet_id=pet_id
+            )
         for index, device_id in enumerate(sorted(selected_boxes, key=int), 1):
             await self.box(device_id, f"box[{index}]", labels)
         if not selected_boxes or not selected_pets:
