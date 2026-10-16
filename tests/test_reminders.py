@@ -381,7 +381,7 @@ async def test_generic_interval_service_rejects_out_of_range_value(
     action, _, _, _, _ = reminder
     set_action = "set_litter_reminder_days" if action == ACTION_LITTER else "set_garbage_bag_reminder_days"
     await setup(hass)
-    with pytest.raises(HomeAssistantError, match="cycle_time|disabled pending live endpoint verification"):
+    with pytest.raises(HomeAssistantError, match=r"cycle_time|disabled pending live endpoint verification"):
         await hass.services.async_call(
             "notty",
             "litter_box_action",
