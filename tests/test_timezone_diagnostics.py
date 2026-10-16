@@ -71,9 +71,7 @@ def test_unknown_device_timezone_is_not_guessed(invalid: object) -> None:
     assert context["home_assistant_time_zone"] == LOCAL_ZONE
 
 
-async def test_existing_timezone_sensor_displays_device_vs_ha(
-    hass: HomeAssistant, runtime_api: MagicMock
-) -> None:
+async def test_existing_timezone_sensor_displays_device_vs_ha(hass: HomeAssistant, runtime_api: MagicMock) -> None:
     """Keep the existing sensor identity and expose diagnostic offsets."""
     hass.config.time_zone = LOCAL_ZONE
     runtime_api.device_info.return_value[FIELD_DEVICE_TIME_ZONE] = LOCAL_ZONE
