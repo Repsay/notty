@@ -77,7 +77,12 @@ independently established by the decoded APK paths.
   remaining-days counters were 0. This is not a reset operation.
 - `action=3`, without `cycle_time`: rejected on both endpoints with
   server messages requiring valid configured days (5–30 for litter, 2–15
-  for trash bag); no successful action-3 write was demonstrated.
+  for trash bag).
+- `action=3`, **with** `cycle_time=30`: accepted on the **litter**
+  endpoint. Before and after, `open_litter_remind=true`,
+  `default_remaining_days=30`, and `remaining_days=30`. This tests
+  acceptance and preservation at a *full countdown*, but **cannot prove
+  a reset**. No action-3 write has been tested on the trash-bag endpoint.
 
 The safe configuration switches now use `action=1` to enable and
 `action=2` to disable, **always** validating and sending the current
