@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, time
 import json
 import logging
+import re
 from typing import TypedDict, Unpack, cast
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
@@ -11,6 +13,19 @@ import aiohttp
 HTTP_ERROR_STATUS = 400
 ACTION_ONE_KEY = "one_key"
 ACTION_SET_AUTO_DELAY = "set_auto_delay"
+PLAN_ADD = "add_plan"
+PLAN_EDIT = "edit_plan"
+PLAN_OPEN = "open_plan"
+PLAN_DELETE = "delete_plan"
+PLAN_FIELDS = {
+    PLAN_ADD: {"time"},
+    PLAN_EDIT: {"plan_id", "time"},
+    PLAN_OPEN: {"plan_id", "open"},
+    PLAN_DELETE: {"plan_id"},
+}
+PLAN_ACTIONS = set(PLAN_FIELDS)
+PLAN_TIME_RE = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]")
+MAX_LITTER_PLANS = 10
 MAX_DELAY_MINUTES = 15
 
 type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
@@ -115,6 +130,116 @@ class NottyApiError(Exception):
 
 class NottyAuthError(NottyApiError):
     """Authentication failed."""
+
+
+def plan_id(value: JsonValue) -> str:
+    """Validate a plan identifier without coercing booleans or missing values.
+
+    Returns:
+        An identifier suitable for exact matching against a device's plan list.
+
+    Raises:
+        NottyApiError: If the identifier is empty or malformed.
+    """
+    if type(value) is int and value > 0:
+        return str(value)
+    msg = "A valid nonempty plan_id is required"
+    if not isinstance(value, str) or not value or value != value.strip() or not value.isprintable():
+        raise NottyApiError(msg)
+    if value.lstrip("+-").isdecimal() and int(value) <= 0:
+        raise NottyApiError(msg)
+    return value
+
+
+def plan_enabled(value: JsonValue) -> bool | None:
+    """Decode only recognized read-state representations.
+
+    Returns:
+        True, False, or None for an unknown state.
+    """
+    if isinstance(value, (bool, int, str)):
+        if value in {True, "1", "true"}:
+            return True
+        if value in {False, "0", "false"}:
+            return False
+    return None
+
+
+def plan_rows(value: JsonValue) -> list[JsonObject]:
+    """Require a complete plan list before allowing any mutation.
+
+    Returns:
+        The rows with unique, usable plan identifiers.
+
+    Raises:
+        NottyApiError: If the response is not a list of uniquely identified objects.
+    """
+    if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
+        msg = "NOTTY returned an invalid schedule list"
+        raise NottyApiError(msg)
+    rows = cast("list[JsonObject]", value)
+    identifiers = [plan_id(row.get("plan_id")) for row in rows]
+    if len(set(identifiers)) != len(identifiers):
+        msg = "NOTTY returned ambiguous schedule IDs"
+        raise NottyApiError(msg)
+    return rows
+
+
+def _plan_target(
+    action: str, data: JsonObject, rows: list[JsonObject], device_id: str
+) -> tuple[JsonObject, JsonObject]:
+    if action == PLAN_ADD:
+        if len(rows) >= MAX_LITTER_PLANS:
+            msg = "NOTTY supports at most ten cleaning plans"
+            raise NottyApiError(msg)
+        return {"user_device_id": device_id}, {}
+    target = plan_id(data.get("plan_id"))
+    matches = [row for row in rows if plan_id(row.get("plan_id")) == target]
+    if len(matches) != 1:
+        msg = "The selected plan_id does not belong to this litter box"
+        raise NottyApiError(msg)
+    current = matches[0]
+    return {"plan_id": current["plan_id"]}, current
+
+
+def _plan_time_fields(data: JsonObject, current: JsonObject) -> JsonObject:
+    clock = data.get("time")
+    if not isinstance(clock, str) or not PLAN_TIME_RE.fullmatch(clock):
+        msg = "Schedule time must be a NOTTY clock value in HH:MM format"
+        raise NottyApiError(msg)
+    for field in ("quantity", "plan_type_id"):
+        value = current.get(field, 1)
+        if type(value) is not int or value != 1:
+            msg = "Cannot edit an unsupported schedule quantity or recurrence type"
+            raise NottyApiError(msg)
+    return {"time": clock, "quantity": 1}
+
+
+def plan_payload(action: str, data: JsonObject, rows: list[JsonObject], device_id: str) -> JsonObject:
+    """Build only fields established by the app's litter-box schedule callers.
+
+    Returns:
+        A narrowly targeted request, preserving the reported plan ID type.
+
+    Raises:
+        NottyApiError: If targeting, time, state or plan support is invalid.
+    """
+    if action not in PLAN_ACTIONS:
+        msg = "Unsupported schedule action"
+        raise NottyApiError(msg)
+    if set(data) != PLAN_FIELDS[action]:
+        msg = f"Schedule {action} requires exactly: {', '.join(sorted(PLAN_FIELDS[action]))}"
+        raise NottyApiError(msg)
+    payload, current = _plan_target(action, data, rows, device_id)
+    if action in {PLAN_ADD, PLAN_EDIT}:
+        payload.update(_plan_time_fields(data, current))
+    if action == PLAN_OPEN:
+        enabled = data.get("open")
+        if type(enabled) is not bool:
+            msg = "Schedule open must be a Boolean"
+            raise NottyApiError(msg)
+        payload["open"] = enabled
+    return payload
 
 
 def reminder_payload(action: str, data: JsonObject) -> JsonObject:
@@ -875,6 +1000,29 @@ class NottyApi(NottyTransport):
                 rows.append({k: v for k, v in row.items() if not matches_value(v, (None, ""))})
         return rows
 
+    async def litter_plans(self, device_id: str) -> list[JsonObject]:
+        """Read the selected litter box's complete schedule list.
+
+        Returns:
+            Validated plan rows; an unavailable endpoint is never an empty list.
+        """
+        value = await self.request("GET", f"/device/litter_box/plans/{quote(device_id, safe='')}")
+        return plan_rows(value)
+
+    async def manage_litter_plan(self, device_id: str, action: str, data: JsonObject) -> JsonValue:
+        """Validate current membership and send one explicitly targeted schedule write.
+
+        Returns:
+            The decoded server response.
+        """
+        rows = await self.litter_plans(device_id)
+        payload = plan_payload(action, data, rows, device_id)
+        if action == PLAN_OPEN:
+            current = next(row for row in rows if row["plan_id"] == payload["plan_id"])
+            if plan_enabled(current.get("open")) is payload["open"]:
+                return None
+        return await self.request("POST", LITTER_ACTION_ENDPOINTS[action], data=payload)
+
     async def litter_related_info(self, device_id: str) -> JsonObject:
         """Read optional litter-box endpoints and associated pet statistics.
 
@@ -1006,6 +1154,8 @@ class NottyApi(NottyTransport):
         Raises:
             NottyApiError: When the requested operation cannot be completed.
         """
+        if action in PLAN_ACTIONS:
+            return await self.manage_litter_plan(device_id, action, data or {})
         path = LITTER_ACTION_ENDPOINTS.get(action)
         if not path:
             msg = f"Unsupported litter box action: {action}"

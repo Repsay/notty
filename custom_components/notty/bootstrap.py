@@ -33,6 +33,7 @@ from custom_components.notty.const import (
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.entity import value_from_block
 from custom_components.notty.models import NottyConfigEntry
+from custom_components.notty.schedule import SERVICE_LITTER_BOX_SCHEDULE, register_schedule_service
 from custom_components.notty.validation import vol
 
 DEVICE_TYPE_LITTER_BOX = "litter_box"
@@ -89,6 +90,7 @@ def _validate_litter_interval_change(coordinator: NottyCoordinator, device_id: s
 
 
 def _register_services(hass: HomeAssistant) -> None:
+    register_schedule_service(hass, _get_coordinator)
     if hass.services.has_service(DOMAIN, SERVICE_LITTER_BOX_ACTION):
         return
 
@@ -201,6 +203,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: NottyConfigEntry) -> bo
     ]:
         hass.services.async_remove(DOMAIN, SERVICE_LITTER_BOX_ONE_KEY)
         hass.services.async_remove(DOMAIN, SERVICE_LITTER_BOX_ACTION)
+        hass.services.async_remove(DOMAIN, SERVICE_LITTER_BOX_SCHEDULE)
     return unloaded
 
 
