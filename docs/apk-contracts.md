@@ -78,14 +78,23 @@ Future DST behavior and cross-region devices remain unverified.
 
 The NOTTY app's timezone controller refers to
 `/entity/get_time_zones` (catalog read; APK address `0xc0d018`) and
-`/device/change_time_zone` (setting write; `0xcd6570`). Neither the
-catalog response schema nor the numeric IDs/change payload has been verified
-against the owner's device. The read-only, opt-in
-`scripts/probe_timezones.py` submits **one GET request** to the inferred
-catalog path and prints **only JSON key paths/types** by default; sensitive
-raw replies, when explicitly requested, stay in local `*.private.json` files.
-The public integration does **not** invoke the catalog on every poll, infer
-numeric timezone IDs from IANA names, or expose setting writes.
+`/device/change_time_zone` (setting write; `0xcd6570`).
+
+**Owner-observed live catalog on 2026-10-16:** GET
+`/entity/get_time_zones` succeeded. Its result is a *top-level array*
+of objects, each containing `id`, `display_name`, and `offset`,
+all **strings**. This establishes field names and types, but the actual
+catalog ID semantics, example values, offset semantics, and device change
+payload remain unknown. In particular, there is no evidence that the
+`id` is an IANA identifier, or even numeric.
+
+The opt-in `scripts/probe_timezones.py` performs **one read-only GET**
+and prints only schema paths, types and total entry count by default.
+Use `--find Amsterdam` to show at most ten matching `id`,
+`display_name` and `offset` triples, with all other keys excluded;
+`--capture-raw` remains optional and stores raw replies only in
+local `*.private.json` files. The public integration does **not**
+poll the catalog, infer timezone IDs from IANA names, or expose writes.
 
 The existing dynamic `time_zone_iana` sensor gets read-only diagnostic
 attributes: validated device IANA zone, current device/HA UTC offsets,
