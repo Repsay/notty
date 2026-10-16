@@ -47,8 +47,11 @@ def test_server_event_and_utc_message_agree_in_amsterdam():
     )
     assert related_summary["messages_date_created"] == "2026-10-16T07:53+02:00"
     event_summary = _toilet_event_summary(
-        {"event": "Sample cat just spent 42s in the litter box.", "date": "2026-10-16",
-         "time": "13:53"},
+        {
+            "event": "Sample cat just spent 42s in the litter box.",
+            "date": "2026-10-16",
+            "time": "13:53",
+        },
         "Europe/Amsterdam",
     )
     assert event_summary["latest_toilet_event_datetime"] == "2026-10-16T07:53+02:00"
