@@ -108,12 +108,16 @@ class NottyTime(NottyEntity, TimeEntity):
             HomeAssistantError: When the requested operation cannot be completed.
         """
         try:
-            data = dnd_payload(
-                merged_device_data(self.block),
-                time_zone=self.coordinator.hass.config.time_zone,
-                input_time_zone=self.coordinator.hass.config.time_zone,
-                **{self.entity_description.key: _format_time(value)},
-            )
+            current = merged_device_data(self.block)
+            local_zone = self.coordinator.hass.config.time_zone
+            if self.entity_description.key == "dnd_begin_time":
+                data = dnd_payload(
+                    current, time_zone=local_zone, input_time_zone=local_zone, dnd_begin_time=_format_time(value)
+                )
+            else:
+                data = dnd_payload(
+                    current, time_zone=local_zone, input_time_zone=local_zone, dnd_end_time=_format_time(value)
+                )
         except NottyApiError as exc:
             raise HomeAssistantError(str(exc)) from exc
         await self.coordinator.api.litter_action(self.device_id, "set_dnd", data)
