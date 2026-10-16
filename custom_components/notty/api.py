@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import time
+from datetime import UTC, date, datetime, time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import json
 import logging
 from typing import TypedDict, Unpack, cast
@@ -105,17 +106,57 @@ class NottyAuthError(NottyApiError):
     """Authentication failed."""
 
 
-def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
-    """Build a DND write while preserving the shared LED and time settings.
+DND_READ_TIME_ZONE = "Asia/Shanghai"
+DND_TIME_FIELDS = ("dnd_begin_time", "dnd_end_time")
 
-    The app reads switch_dnd but writes switch. Never invent defaults for
-    settings that the same endpoint may overwrite (APK 1.1.30, 0xcc6fc8).
 
-    Returns:
-        The computed result.
+def _dnd_clock(value: JsonValue) -> time:
+    """Validate a time-of-day without accepting offsets or seconds."""
+    try:
+        parsed = time.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        parsed = None
+    if parsed is None or parsed.tzinfo is not None or parsed.second or parsed.microsecond:
+        msg = "Cannot preserve current Do Not Disturb interval"
+        raise NottyApiError(msg)
+    return parsed
 
-    Raises:
-        NottyApiError: When the requested operation cannot be completed.
+
+def dnd_local_time(value: JsonValue, time_zone: str, *, at: datetime | None = None) -> time:
+    """Interpret a NOTTY readback clock in the local Home Assistant timezone.
+
+    Owner-observed readback in Amsterdam was +6h (Shanghai minus CEST).
+    This converts only *read* values; NOTTY writes expect local clock text.
+    """
+    parsed = _dnd_clock(value)
+    try:
+        source_zone = ZoneInfo(DND_READ_TIME_ZONE)
+        target_zone = ZoneInfo(time_zone)
+    except (KeyError, ZoneInfoNotFoundError, ValueError) as exc:
+        msg = "Cannot convert Do Not Disturb times without a valid local timezone"
+        raise NottyApiError(msg) from exc
+    moment = at or datetime.now(UTC)
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        msg = "Cannot convert Do Not Disturb times without an aware reference instant"
+        raise NottyApiError(msg)
+    source_offset = moment.astimezone(source_zone).utcoffset()
+    target_offset = moment.astimezone(target_zone).utcoffset()
+    if source_offset is None or target_offset is None:
+        msg = "Cannot determine Do Not Disturb timezone offset"
+        raise NottyApiError(msg)
+    # A recurring clock has no date. Use the offsets at the same instant for
+    # both boundaries; otherwise the DST transition date shifts one boundary.
+    return (datetime.combine(date(2000, 1, 1), parsed) - (source_offset - target_offset)).time()
+
+
+def dnd_payload(
+    current: JsonObject, *, time_zone: str, at: datetime | None = None, **changes: JsonValue
+) -> JsonObject:
+    """Build a local-clock DND request without converting readback times twice.
+
+    NOTTY returns read clocks in an apparent Shanghai base, but accepts
+    local-clock values on set_dnd. The owner's 07:00/22:00 returned as
+    13:00/04:00 in Amsterdam; echoing those raw values shifted both by +6h.
     """
     state = {**current, **changes}
     enabled = state.get("switch_dnd")
@@ -127,21 +168,18 @@ def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
         msg = "Cannot preserve unknown LED setting for Do Not Disturb"
         raise NottyApiError(msg)
     payload: JsonObject = {"switch": int(enabled), "led": led}
-    for key in ("dnd_begin_time", "dnd_end_time"):
-        value = state.get(key)
-        try:
-            parsed = time.fromisoformat(value) if isinstance(value, str) else None
-        except ValueError:
-            parsed = None
-        if parsed is None or parsed.tzinfo is not None or parsed.second or parsed.microsecond:
-            msg = "Cannot preserve current Do Not Disturb interval"
-            raise NottyApiError(msg)
+    for key in DND_TIME_FIELDS:
+        # Home Assistant edits already contain local clock text; only raw
+        # backend readback requires converting Shanghai -> local.
+        if key in changes:
+            parsed = _dnd_clock(changes[key])
+        else:
+            parsed = dnd_local_time(current.get(key), time_zone, at=at)
         payload[key] = parsed.strftime("%H:%M")
     if payload["switch"] and payload["dnd_begin_time"] == payload["dnd_end_time"]:
         msg = "Cannot enable Do Not Disturb with identical start/end times"
         raise NottyApiError(msg)
     return payload
-
 
 class ConnectionOptions(TypedDict, total=False):
     """Optional NOTTY account and session parameters."""
