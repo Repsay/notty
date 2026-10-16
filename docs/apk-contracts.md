@@ -74,6 +74,32 @@ It does **not** restore the original desired `07:00–22:00` schedule:
 the user must set that schedule separately in the official NOTTY app.
 Future DST behavior and cross-region devices remain unverified.
 
+## Device timezone catalog and setting (#21)
+
+The NOTTY app's timezone controller refers to
+`/entity/get_time_zones` (catalog read; APK address `0xc0d018`) and
+`/device/change_time_zone` (setting write; `0xcd6570`). Neither the
+catalog response schema nor the numeric IDs/change payload has been verified
+against the owner's device. The read-only, opt-in
+`scripts/probe_timezones.py` submits **one GET request** to the inferred
+catalog path and prints **only JSON key paths/types** by default; sensitive
+raw replies, when explicitly requested, stay in local `*.private.json` files.
+The public integration does **not** invoke the catalog on every poll, infer
+numeric timezone IDs from IANA names, or expose setting writes.
+
+The existing dynamic `time_zone_iana` sensor gets read-only diagnostic
+attributes: validated device IANA zone, current device/HA UTC offsets,
+their difference, and the **assumed** API event clock basis
+(`Asia/Shanghai`). It preserves the existing sensor identity. These values
+do not imply that the app's timezone-selection catalog has been decoded.
+Offsets are instant-dependent: European and US DST transitions differ,
+so unit tests compare summer, interstitial transition and winter dates.
+
+Actual timezone changes require discovering available catalog choices,
+tracing the POST payload, a preservation strategy for DND and cleaning
+schedules, and one explicitly owner-authorized device write. Issue #21
+remains open until those steps are completed.
+
 ## Automatic cleaning delay (#16)
 
 `SettingController` builds the delay picker at `0xc0b05c`: an unboxed integer loop
