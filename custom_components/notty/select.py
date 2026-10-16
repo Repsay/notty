@@ -18,6 +18,8 @@ DEVICE_TYPE_LITTER_BOX = "litter_box"
 SOURCE_PET = "pet"
 FIELD_AUTO_DELAY = "auto_delay"
 FIELD_MODE = "mode"
+FIELD_LITTER_INTERVAL = "default_remaining_days"
+FIELD_LITTER_ENABLED = "open_litter_remind"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -58,7 +60,6 @@ SELECTS = (
         action="set_litter_reminder_days",
         field="cycle_time",
         value_options={days: f"{days} days" for days in range(5, 31)},
-        fallback_key="remaining_days",
         unit="days",
     ),
     NottySelectDescription(
@@ -103,6 +104,15 @@ def _as_int(value: JsonValue) -> JsonValue:
     if isinstance(value, str) and value.strip().isdigit():
         return int(value.strip())
     return value
+
+
+def _litter_reminder_enabled(value: JsonValue) -> bool:
+    """Return true only for verified on-state representations.
+
+    Returns:
+        Whether the reminder state is explicitly enabled.
+    """
+    return value is True or (type(value) is int and value == 1) or value in ("1", "true")
 
 
 class NottySelect(NottyEntity, SelectEntity):
@@ -152,6 +162,15 @@ class NottySelect(NottyEntity, SelectEntity):
         Returns:
             bool: The resulting available.
         """
+        if self.entity_description.key == FIELD_LITTER_INTERVAL:
+            state = value_from_block(self.block, FIELD_LITTER_ENABLED)
+            cycle = _as_int(value_from_block(self.block, FIELD_LITTER_INTERVAL))
+            return (
+                super().available
+                and _litter_reminder_enabled(state)
+                and type(cycle) is int
+                and cycle in self.entity_description.value_options
+            )
         if self.entity_description.key == FIELD_AUTO_DELAY:
             mode = value_from_block(self.block, "mode")
             if mode is None:
@@ -182,6 +201,9 @@ class NottySelect(NottyEntity, SelectEntity):
         if self.entity_description.key == FIELD_AUTO_DELAY and not self.available:
             msg = "NOTTY cleaning delay can only be changed in Auto mode with current device data"
             raise HomeAssistantError(msg)
+        if self.entity_description.key == FIELD_LITTER_INTERVAL and not self.available:
+            msg = "NOTTY litter interval changes require an enabled reminder and a valid configured cycle"
+            raise HomeAssistantError(msg)
         if self.entity_description.key == FIELD_MODE:
             msg = (
                 "NOTTY mode changes are disabled until remaining mode codes and "
@@ -193,6 +215,9 @@ class NottySelect(NottyEntity, SelectEntity):
             if self.entity_description.key == FIELD_AUTO_DELAY:
                 msg = "NOTTY cleaning delay must be between 1 and 15 minutes"
                 raise HomeAssistantError(msg)
+            return
+        if self.entity_description.key == FIELD_LITTER_INTERVAL and option == self.current_option:
+            # An identical interval might reset an elapsed countdown; this has not been verified.
             return
         await self.coordinator.api.litter_action(
             self.device_id, self.entity_description.action, {self.entity_description.field: reverse[option]}
