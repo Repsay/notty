@@ -181,9 +181,7 @@ async def test_missing_shared_dnd_setting_prevents_write(
     runtime_api.litter_action.assert_not_awaited()
 
 
-async def test_dnd_ha_time_entity_converts_readback(
-    hass: HomeAssistant, runtime_api: MagicMock
-) -> None:
+async def test_dnd_ha_time_entity_converts_readback(hass: HomeAssistant, runtime_api: MagicMock) -> None:
     """HA displays the Shanghai-coded API time in the configured local timezone."""
     hass.config.set_time_zone("UTC")
     runtime_api.device_info.return_value.update({
@@ -199,15 +197,10 @@ async def test_dnd_ha_time_entity_converts_readback(
     assert start.state == EXPECTED_DND_START_UTC
     assert end.state == EXPECTED_DND_END_UTC
     await hass.services.async_call(
-        "time",
-        "set_value",
-        {"entity_id": "time.test_box_do_not_disturb_start", "time": "15:30:00"},
-        blocking=True,
+        "time", "set_value", {"entity_id": "time.test_box_do_not_disturb_start", "time": "15:30:00"}, blocking=True
     )
     runtime_api.litter_action.assert_awaited_once_with(
-        "box-1",
-        "set_dnd",
-        {"switch": 1, "led": 2, "dnd_begin_time": "23:30", "dnd_end_time": "07:00"},
+        "box-1", "set_dnd", {"switch": 1, "led": 2, "dnd_begin_time": "23:30", "dnd_end_time": "07:00"}
     )
 
 
