@@ -3,12 +3,10 @@
     "step": {
       "user": {
         "title": "Connect NOTTY",
-        "description": "Sign in with the email address used by the NOTTY app. Enter your password, or leave password blank to receive an email verification code.",
+        "description": "Enter your NOTTY account email address to receive a verification code.",
         "data": {
           "email": "Email address",
-          "password": "Password (optional)",
-          "region_code": "Region code",
-          "firebase_api_key": "Firebase API key override (optional)"
+          "region_code": "Region code"
         }
       },
       "code": {
@@ -21,7 +19,8 @@
     },
     "error": {
       "invalid_auth": "Login failed: {error}",
-      "cannot_send_code": "Could not send verification code: {error}"
+      "cannot_send_code": "Could not send verification code: {error}",
+      "cannot_connect": "Could not connect to NOTTY: {error}"
     },
     "abort": {
       "already_configured": "This NOTTY account is already configured.",

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from datetime import time
+from datetime import UTC, date, datetime, time
 import json
 import logging
 from typing import TypedDict, Unpack, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 
@@ -17,13 +17,10 @@ type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValu
 type JsonObject = dict[str, JsonValue]
 
 BASE_URL = "https://api.nottycat.com"
-FIREBASE_SIGN_IN_URL = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
-FIREBASE_REFRESH_URL = "https://securetoken.googleapis.com/v1/token"
-DEFAULT_FIREBASE_API_KEY = "AIzaSyCm6i6ZT7MAQmdA9rKobMAslpTXRCdXncw"
 APP_USER_AGENT = "4.1.0;android;6.0.1;default;A001"
 LOGIN_CODE_TYPE_ID = 1
-LOGIN_USER_DEVICE_ID = 1
-LOGIN_DEVICE_ID = 1
+LOGIN_DEVICE_ID = "1"
+APP_VERSION_NUMBER = "1.1.30+76"
 DEFAULT_CLIENT_ID = "0"
 DEVICE_INFO_PATHS = {"litter_box": "/device/litter_box/get_info/"}
 LITTER_READ_ENDPOINTS = {
@@ -154,18 +151,114 @@ def reminder_payload(action: str, data: JsonObject) -> JsonObject:
         raise NottyApiError(msg)
     return {"action": operation, "cycle_time": cycle}
 
-def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
-    """Build a DND write while preserving the shared LED and time settings.
+DND_READ_TIME_ZONE = "Asia/Shanghai"
+DND_TIME_FIELDS = ("dnd_begin_time", "dnd_end_time")
 
-    The app reads switch_dnd but writes switch. Never invent defaults for
-    settings that the same endpoint may overwrite (APK 1.1.30, 0xcc6fc8).
+
+def _dnd_clock(value: JsonValue) -> time:
+    """Validate a time-of-day without accepting offsets or seconds.
 
     Returns:
-        The computed result.
+        A timezone-free clock value.
 
     Raises:
-        NottyApiError: When the requested operation cannot be completed.
+        NottyApiError: If the clock value is unavailable or invalid.
     """
+    try:
+        parsed = time.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        parsed = None
+    if parsed is None or parsed.tzinfo is not None or parsed.second or parsed.microsecond:
+        msg = "Cannot preserve current Do Not Disturb interval"
+        raise NottyApiError(msg)
+    return parsed
+
+
+def _dnd_shift_time(
+    value: JsonValue, source_time_zone: str, target_time_zone: str, *, at: datetime | None = None
+) -> time:
+    """Translate recurring clock values using offsets at a single instant.
+
+    NOTTY returns recurring wall times with no calendar date, so a future
+    DST-boundary offset cannot be inferred from the response itself.
+
+    Returns:
+        A clock time in the target timezone.
+
+    Raises:
+        NottyApiError: If the time or timezone is invalid.
+    """
+    parsed = _dnd_clock(value)
+    try:
+        source_zone = ZoneInfo(source_time_zone)
+        target_zone = ZoneInfo(target_time_zone)
+    except (KeyError, ZoneInfoNotFoundError, ValueError) as exc:
+        msg = "Cannot convert Do Not Disturb times without valid IANA timezones"
+        raise NottyApiError(msg) from exc
+    moment = at or datetime.now(UTC)
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        msg = "Cannot convert Do Not Disturb times without an aware reference instant"
+        raise NottyApiError(msg)
+    source_offset = moment.astimezone(source_zone).utcoffset()
+    target_offset = moment.astimezone(target_zone).utcoffset()
+    if source_offset is None or target_offset is None:
+        msg = "Cannot determine Do Not Disturb timezone offset"
+        raise NottyApiError(msg)
+    return (datetime.combine(date(2000, 1, 1), parsed) + (target_offset - source_offset)).time()
+
+
+def dnd_time_zone(current: JsonObject, *, fallback: str | None = None) -> str:
+    """Resolve the device's configured IANA zone, falling back only if absent.
+
+    Returns:
+        A validated IANA timezone name.
+
+    Raises:
+        NottyApiError: If no usable timezone is available.
+    """
+    configured = current.get("time_zone_iana")
+    if not configured:
+        configured = fallback
+    if not isinstance(configured, str) or not configured:
+        msg = "Cannot change Do Not Disturb without a NOTTY or fallback IANA timezone"
+        raise NottyApiError(msg)
+    try:
+        ZoneInfo(configured)
+    except (KeyError, ZoneInfoNotFoundError, ValueError) as exc:
+        msg = "Invalid reported Do Not Disturb device timezone"
+        raise NottyApiError(msg) from exc
+    return configured
+
+
+def dnd_local_time(value: JsonValue, time_zone: str, *, at: datetime | None = None) -> time:
+    """Convert API readback (apparent Shanghai clock) directly into HA time.
+
+    Returns:
+        The converted local clock value.
+    """
+    return _dnd_shift_time(value, DND_READ_TIME_ZONE, time_zone, at=at)
+
+
+def dnd_payload(
+    current: JsonObject,
+    *,
+    time_zone: str | None = None,
+    input_time_zone: str | None = None,
+    at: datetime | None = None,
+    **changes: JsonValue,
+) -> JsonObject:
+    """Send device-local clock times; never echo the shifted API readback.
+
+    Prefer NOTTY's time_zone_iana to any caller-provided fallback. HA edits
+    are in HA's timezone and must be converted again to device-local time.
+
+    Returns:
+        A validated DND request containing device-local clock values.
+
+    Raises:
+        NottyApiError: If any preserved setting or zone is unknown or invalid.
+    """
+    device_zone = dnd_time_zone(current, fallback=time_zone)
     state = {**current, **changes}
     enabled = state.get("switch_dnd")
     if not isinstance(enabled, (bool, int, str)) or enabled not in {0, 1, "0", "1"}:
@@ -176,15 +269,14 @@ def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
         msg = "Cannot preserve unknown LED setting for Do Not Disturb"
         raise NottyApiError(msg)
     payload: JsonObject = {"switch": int(enabled), "led": led}
-    for key in ("dnd_begin_time", "dnd_end_time"):
-        value = state.get(key)
-        try:
-            parsed = time.fromisoformat(value) if isinstance(value, str) else None
-        except ValueError:
-            parsed = None
-        if parsed is None or parsed.tzinfo is not None or parsed.second or parsed.microsecond:
-            msg = "Cannot preserve current Do Not Disturb interval"
-            raise NottyApiError(msg)
+    for key in DND_TIME_FIELDS:
+        if key in changes:
+            # Explicit user edits are in HA timezone, unless a standalone
+            # caller passes device-local values without an input timezone.
+            source_zone = input_time_zone or device_zone
+            parsed = _dnd_shift_time(changes[key], source_zone, device_zone, at=at)
+        else:
+            parsed = dnd_local_time(current.get(key), device_zone, at=at)
         payload[key] = parsed.strftime("%H:%M")
     if payload["switch"] and payload["dnd_begin_time"] == payload["dnd_end_time"]:
         msg = "Cannot enable Do Not Disturb with identical start/end times"
@@ -196,18 +288,16 @@ class ConnectionOptions(TypedDict, total=False):
     """Optional NOTTY account and session parameters."""
 
     email: str | None
-    password: str | None
     verification_code: str | None
     token: str | None
     refresh_token: str | None
     user_id: str | int | None
-    firebase_api_key: str | None
     client_id: str
     region_code: str
 
 
-class NottyTransport(ABC):
-    """HTTP transport with one bounded authentication retry."""
+class NottyTransport:
+    """HTTP transport that propagates expired sessions without replaying requests."""
 
     def __init__(self, session: aiohttp.ClientSession, **options: Unpack[ConnectionOptions]) -> None:
         self._session = session
@@ -215,24 +305,12 @@ class NottyTransport(ABC):
         verification_code = options.get("verification_code")
         user_id = options.get("user_id")
         self.email = email.strip() if email else email
-        self.password = options.get("password")
         self.verification_code = verification_code.strip() if verification_code else verification_code
         self.token = options.get("token")
         self.refresh_token = options.get("refresh_token")
         self.user_id = str(user_id) if not matches_value(user_id, (None, "")) else None
-        self.firebase_api_key = options.get("firebase_api_key") or DEFAULT_FIREBASE_API_KEY
         self.client_id = options.get("client_id", DEFAULT_CLIENT_ID)
         self.region_code = options.get("region_code", "NL")
-        self.authenticating = False
-
-    @abstractmethod
-    async def login(self) -> str:
-        """Authenticate or renew the credentials used by transport requests.
-
-        Returns:
-            The account access token.
-        """
-        raise NotImplementedError
 
     def _headers(self) -> dict[str, str]:
         headers = {
@@ -333,24 +411,13 @@ class NottyTransport(ABC):
             return {"raw": text}
         return self.unwrap(payload)
 
-    async def request(
-        self, method: str, path: str, *, data: JsonObject | None = None, retry_auth: bool = True
-    ) -> JsonValue:
-        """Request.
+    async def request(self, method: str, path: str, *, data: JsonObject | None = None) -> JsonValue:
+        """Send one request and let Home Assistant handle expired sessions.
 
         Returns:
-            JsonValue: The resulting request.
-
-        Raises:
-            NottyAuthError: When the cloud session is rejected.
+            The decoded NOTTY response.
         """
-        try:
-            return await self.raw_request(method, f"{BASE_URL}{path}", data=data)
-        except NottyAuthError:
-            if not retry_auth or self.authenticating or not self.email or not self.password:
-                raise
-            await self.login()
-            return await self.request(method, path, data=data, retry_auth=False)
+        return await self.raw_request(method, f"{BASE_URL}{path}", data=data)
 
     async def verify_token(self) -> JsonValue:
         """Verify token.
@@ -358,7 +425,7 @@ class NottyTransport(ABC):
         Returns:
             JsonValue: The resulting verify token.
         """
-        return await self.request("GET", "/account/verify_token", retry_auth=False)
+        return await self.request("GET", "/account/verify_token")
 
     async def endpoint_action(self, device_id: str, path: str) -> JsonValue:
         """Endpoint action.
@@ -492,7 +559,7 @@ class NottyApi(NottyTransport):
     def _extract_login(result: JsonValue) -> tuple[str | None, str | None, str | None]:
         if not isinstance(result, dict):
             return None, None, None
-        token = NottyApi._find_first(result, ("access_token", "accessToken", "token", "idToken"))
+        token = NottyApi._find_first(result, ("access_token", "accessToken", "token"))
         refresh = NottyApi._find_first(result, ("refresh_token", "refreshToken"))
         user_id = result.get("user_id") or result.get("userId") or result.get("uid")
         if matches_value(user_id, (None, "")):
@@ -530,11 +597,10 @@ class NottyApi(NottyTransport):
             "POST",
             f"{BASE_URL}/account/login_by_email",
             data={
-                "code_type_id": LOGIN_CODE_TYPE_ID,
                 "email": self.email,
                 "code": self.verification_code,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
                 "device_id": LOGIN_DEVICE_ID,
+                "version_number": APP_VERSION_NUMBER,
             },
             authenticated=False,
         )
@@ -547,209 +613,31 @@ class NottyApi(NottyTransport):
         _LOGGER.debug("NOTTY email-code login response contained no NOTTY access token")
         return False
 
-    async def _firebase_password_sign_in(self) -> tuple[str, str | None]:
-        if not self.firebase_api_key:
-            msg = "Firebase API key is required"
-            raise NottyAuthError(msg)
-        result = await self.raw_request(
-            "POST",
-            f"{FIREBASE_SIGN_IN_URL}?key={self.firebase_api_key}",
-            data={"email": self.email, "password": self.password, "returnSecureToken": True},
-            authenticated=False,
-        )
-        token, refresh, _user_id = self._extract_login(result)
-        if not token:
-            msg = "Firebase login response contained no ID token"
-            raise NottyAuthError(msg)
-        return token, refresh
-
-    async def login_with_firebase(self) -> bool:
-        """Login with firebase.
-
-        Returns:
-            bool: The resulting login with firebase.
-        """
-        id_token, refresh = await self._firebase_password_sign_in()
-        attempts: tuple[JsonObject, ...] = (
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "id_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "idToken": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "access_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "firebase_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "email": self.email,
-                "token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "id_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "access_token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-            {
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "token": id_token,
-                "user_device_id": LOGIN_USER_DEVICE_ID,
-                "device_id": LOGIN_DEVICE_ID,
-            },
-        )
-        errors: list[str] = []
-        for payload in attempts:
-            try:
-                result = await self.raw_request(
-                    "POST", f"{BASE_URL}/account/login_by_email", data=payload, authenticated=False
-                )
-            except NottyApiError as err:
-                errors.append(str(err))
-                continue
-            token, notty_refresh, user_id = self._extract_login(result)
-            if token:
-                self.token = token
-                self.refresh_token = notty_refresh or refresh
-                self.user_id = user_id
-                return True
-            errors.append("response contained no NOTTY access token")
-        _LOGGER.debug("NOTTY Firebase token exchange attempts failed: %s", " | ".join(errors))
-        return False
-
-    async def login_notty(self) -> bool:
-        # The Flutter APK exposes account login code and Firebase Auth, but its exact
-        # password exchange is AOT compiled. Try known/common NOTTY payload variants.
-        """Login notty.
-
-        Returns:
-            bool: The resulting login notty.
-        """
-        attempts: tuple[tuple[str, JsonObject], ...] = (
-            (
-                "/account/login",
-                {
-                    "email": self.email,
-                    "password": self.password,
-                    "user_device_id": LOGIN_USER_DEVICE_ID,
-                    "device_id": LOGIN_DEVICE_ID,
-                },
-            ),
-            (
-                "/account/login_by_password",
-                {
-                    "email": self.email,
-                    "password": self.password,
-                    "user_device_id": LOGIN_USER_DEVICE_ID,
-                    "device_id": LOGIN_DEVICE_ID,
-                },
-            ),
-            (
-                "/account/login_by_email",
-                {
-                    "code_type_id": LOGIN_CODE_TYPE_ID,
-                    "email": self.email,
-                    "password": self.password,
-                    "user_device_id": LOGIN_USER_DEVICE_ID,
-                    "device_id": LOGIN_DEVICE_ID,
-                },
-            ),
-            (
-                "/account/login",
-                {
-                    "username": self.email,
-                    "password": self.password,
-                    "user_device_id": LOGIN_USER_DEVICE_ID,
-                    "device_id": LOGIN_DEVICE_ID,
-                },
-            ),
-        )
-        errors: list[str] = []
-        for path, payload in attempts:
-            try:
-                result = await self.raw_request("POST", f"{BASE_URL}{path}", data=payload, authenticated=False)
-            except NottyApiError as err:
-                errors.append(f"{path}: {err}")
-                continue
-            token, refresh, user_id = self._extract_login(result)
-            if token:
-                self.token = token
-                self.refresh_token = refresh
-                self.user_id = user_id
-                return True
-            errors.append(f"{path}: response contained no access token")
-        _LOGGER.debug("NOTTY password login attempts failed: %s", " | ".join(errors))
-        return False
-
     async def login(self) -> str:
-        """Authenticate without recursively retrying during credential validation.
+        """Authenticate with a single email-code request, then validate discovery.
 
         Returns:
-            The computed result.
+            The NOTTY access token.
+
+        Raises:
+            NottyAuthError: When an email or code is missing, or the response has no access token.
         """
-        self.authenticating = True
-        try:
-            return await self._login()
-        finally:
-            self.authenticating = False
-
-    async def _login(self) -> str:
         if not self.email:
-            msg = "Email address is required"
-            raise NottyAuthError(msg)
-
-        errors: list[str] = []
-        if self.verification_code:
-            try:
-                if await self._login_with_email_code():
-                    await self.devices()
-                    return self.token or ""
-            except NottyApiError as err:
-                errors.append(f"Email code: {err}")
-
-        if self.password:
-            for label, provider in (("Firebase/NOTTY", self.login_with_firebase), ("NOTTY", self.login_notty)):
-                try:
-                    accepted = await provider()
-                    if accepted:
-                        await self.devices()
-                        return self.token or ""
-                except NottyApiError as err:
-                    errors.append(f"{label}: {err}")
-
-        if not self.password and not self.verification_code:
-            msg = "Password or verification code is required"
-            raise NottyAuthError(msg)
-
-        detail = "; ".join(errors) or "No supported login endpoint accepted the credentials"
-        raise NottyAuthError(detail)
+            message = "Email address is required"
+            raise NottyAuthError(message)
+        if not self.verification_code:
+            message = "A fresh email verification code is required; password login is unsupported"
+            raise NottyAuthError(message)
+        try:
+            accepted = await self._login_with_email_code()
+        finally:
+            # Codes must never be reused by a request retry or kept in a session.
+            self.verification_code = None
+        if not accepted:
+            message = "Email-code login response contained no NOTTY access token"
+            raise NottyAuthError(message)
+        await self.devices()
+        return self.token or ""
 
     async def pets(self) -> list[JsonObject]:
         """Pets.

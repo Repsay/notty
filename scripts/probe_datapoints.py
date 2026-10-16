@@ -168,7 +168,6 @@ async def run(args: ProbeOptions) -> int:
                 token=os.environ.get("NOTTY_ACCESS_TOKEN") or saved_session.get("access_token"),
                 user_id=os.environ.get("NOTTY_USER_ID") or saved_session.get("user_id"),
                 email=os.environ.get("NOTTY_EMAIL") or saved_session.get("email"),
-                password=os.environ.get("NOTTY_PASSWORD"),
                 verification_code=os.environ.get("NOTTY_VERIFICATION_CODE"),
                 region_code=os.environ.get("NOTTY_REGION_CODE") or saved_session.get("region_code", "NL"),
             )

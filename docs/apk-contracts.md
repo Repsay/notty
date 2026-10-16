@@ -1,4 +1,4 @@
-# APK-backed settings contracts
+# APK-backed API contracts
 
 These contracts were traced in NOTTY Smart Pet 1.1.30 (SHA-256
 `3b6dc21037f2802e92233ecd9f685e76b03a79afa2d82dd52a5dfcd689a18e6a`).
@@ -34,12 +34,45 @@ closure at `0xcc73d4` reads the controller boolean and converts it to integer
 `2`. This app screen explicitly selects LED mode `2` when saving the schedule.
 
 The integration preserves the device's reported LED value instead of forcing
-mode `2` during a DND-only edit. This preservation policy needs live verification:
-the decoded schedule screen alone does not establish whether the server requires
-LED mode `2` for a particular DND behavior. Unknown LED, switch or time values
-prevent writes. The switch, time entities and local validation helper share the
-same request builder. Enabling with equal boundaries is rejected; disabling
-preserves an existing equal-boundary interval.
+mode `2` during a DND-only edit. This preservation policy still needs live
+verification.
+
+**Owner DND roundtrip (2026-10-16):** The app showed start 07:00 and end 22:00
+in Europe/Amsterdam (CEST, UTC+2), while GET `get_info` reported 13:00 and
+04:00. Reposting the raw readback as `set_dnd` fields produced 19:00 and
+10:00: another +6-hour shift. The switch remained enabled, so checking only
+`switch_dnd` falsely reported success.
+
+The new conversion treats readback DND clocks as an apparent Asia/Shanghai
+wall-clock representation (UTC+8) and translates to Home Assistant's configured
+IANA zone for display. When writing, **device `time_zone_iana` takes priority**
+over the Home Assistant fallback. Unchanged fields are translated from the
+API's clock representation to the device timezone; edited times are translated
+from HA's timezone to the device timezone. The `led` and `switch` values are
+preserved, and equal start/end times cannot be enabled. An invalid reported
+device timezone blocks the write instead of silently falling back.
+
+Because these are recurring clocks without dates, conversions use the current
+offsets; synthetic tests cover CEST/CET and different HA/device zones.
+Future DST changes require separate owner validation: the server's scheduling
+semantics across transitions have not been established. In particular, the
+`Asia/Shanghai` storage assumption is grounded in one live device's behavior,
+not a general guarantee for every NOTTY model/region.
+
+The standalone `validate_commands.py` tool auto-uses a reported
+`time_zone_iana`; if absent, the operator must supply `--time-zone`.
+After any DND write it compares the entire LED/time window, not only the
+on/off state, and reports drift instead of auto-retrying.
+
+**Owner follow-up (2026-10-16):** Before the corrected write, the API
+reported DND `19:00–10:00`, corresponding to `13:00–04:00` Amsterdam
+time at the current +6-hour offset. The PR's live dry-run constructed
+`13:00–04:00` and an explicitly confirmed write returned the **same
+`19:00–10:00` readback**, with LED and enabled state unchanged.
+This verifies an actual no-drift roundtrip on this device in CEST.
+It does **not** restore the original desired `07:00–22:00` schedule:
+the user must set that schedule separately in the official NOTTY app.
+Future DST behavior and cross-region devices remain unverified.
 
 ## Automatic cleaning delay (#16)
 
@@ -117,3 +150,37 @@ Automated checks establish request construction, Home Assistant service behavior
 state preservation, bounds and refresh behavior. They do not establish server
 acceptance or physical behavior. Issues #11, #12, #16 and #18 remain open pending
 owner-observed live validation. No device commands are sent by this test suite.
+
+## Email verification authentication (#13, #14)
+
+`view/login/login_account/login_controller.dart`, `LoginController::login`
+(`0xc87640`), constructs `/account/login_by_email` with exactly `email`, `code`,
+`device_id` and `version_number`. The device ID is the string `"1"` loaded at
+`0xc876f8`; it is not a physical device identifier. The version closure
+(`0xc7ff10`) returns `AppConfig.app_version_number`. Its initializer (`0xc80784`)
+joins the package version, `"+"`, and build number: `"1.1.30+76"` for this APK.
+
+The separate `/account/get_email_code` request (`0xc88fa0`) contains `email`,
+`code_type_id: 1` (login), and `client_id: "0"`. Those last two fields do not
+belong in the login exchange. HTTP defaults include the app's `User-Aagent`
+header and anonymous `HZUID: "2"`; authenticated requests use the stored NOTTY
+session token. The integration retains its existing compatibility headers.
+
+The inspected email flow does not establish any password or Firebase email
+password endpoint. Google authentication uses `/account/login_by_google` and
+is a separate flow. The integration now supports email codes only and rejects
+an `idToken` as a NOTTY session credential. A code is discarded after one exchange,
+including failures. Expired sessions trigger Home Assistant reauthentication;
+they never replay a code or try speculative endpoints. No refresh-token exchange
+has been established. Migration preserves existing sessions and removes stored
+passwords, Firebase API keys, and verification codes.
+
+An earlier local email-code login succeeded with the previous payload, which
+omitted the app version and used extra fields. This shows that the observed
+request differences did not prevent that login; it does not establish which
+metadata fields the server requires. We now choose the traced app metadata for
+consistency, while retaining existing HTTP compatibility headers.
+
+Synthetic tests verify payloads, failure handling, credential cleanup and
+migration. The corrected metadata still requires a fresh live login to establish
+server acceptance; these changes do not claim new live authentication validation.
