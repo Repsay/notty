@@ -78,7 +78,7 @@ async def run(options: TimezoneProbeOptions) -> JsonObject:
     user_id = session_data["user_id"]
     if not isinstance(token, str) or not isinstance(user_id, str):
         msg = "Session credentials must be strings"
-        raise ValueError(msg)
+        raise TypeError(msg)
     async with aiohttp.ClientSession() as session:
         api = probe_datapoints.load_api.NottyApi(
             session,
@@ -104,7 +104,7 @@ def main() -> int:
     options = cast("TimezoneProbeOptions", parser.parse_args())
     try:
         console(json.dumps(asyncio.run(run(options)), indent=2))
-    except (probe_datapoints.load_api.NottyApiError, OSError, ValueError):
+    except (probe_datapoints.load_api.NottyApiError, OSError, TypeError, ValueError):
         console("Read-only timezone inventory failed; no device changes were attempted.", file=sys.stderr)
         return 2
     return 0
