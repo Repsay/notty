@@ -116,7 +116,7 @@
     },
     "litter_box_action": {
       "name": "Litter box action",
-      "description": "Call a NOTTY litter box action or setting. Reminder reset and interval operations are disabled pending live verification.",
+      "description": "Call a NOTTY litter box action or setting. Litter reminder interval changes are allowed for enabled reminders with a changed valid cycle; reset and trash-bag interval changes remain blocked.",
       "fields": {
         "user_device_id": {
           "name": "User device ID"
