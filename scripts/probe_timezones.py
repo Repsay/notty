@@ -152,10 +152,7 @@ async def inspect_device_timezone(api: probe_datapoints.load_api.NottyApi, devic
         msg = "Requested litter box does not match an account device"
         raise ValueError(msg)
     info = await api.litter_info(device_id)
-    return {
-        "device_listing": device_timezone_fields(matched),
-        "litter_box_info": device_timezone_fields(info),
-    }
+    return {"device_listing": device_timezone_fields(matched), "litter_box_info": device_timezone_fields(info)}
 
 
 @dataclass
