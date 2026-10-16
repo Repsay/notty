@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from custom_components.notty.api import NottyApiError, dnd_payload
+from custom_components.notty.api import NottyApiError, dnd_local_time, dnd_payload
 from custom_components.notty.coordinator import NottyCoordinator
 from custom_components.notty.entity import NottyEntity, merged_device_data, value_from_block
 from custom_components.notty.models import DeviceData, NottyConfigEntry
@@ -85,7 +85,12 @@ class NottyTime(NottyEntity, TimeEntity):
         Returns:
             time | None: The resulting native value.
         """
-        return _parse_time(value_from_block(self.block, self.entity_description.key))
+        try:
+            return dnd_local_time(
+                value_from_block(self.block, self.entity_description.key), self.coordinator.hass.config.time_zone
+            )
+        except NottyApiError:
+            return None
 
     @property
     def extra_state_attributes(self) -> DeviceData | None:
@@ -103,7 +108,11 @@ class NottyTime(NottyEntity, TimeEntity):
             HomeAssistantError: When the requested operation cannot be completed.
         """
         try:
-            data = dnd_payload(merged_device_data(self.block), **{self.entity_description.key: _format_time(value)})
+            data = dnd_payload(
+                merged_device_data(self.block),
+                time_zone=self.coordinator.hass.config.time_zone,
+                **{self.entity_description.key: _format_time(value)},
+            )
         except NottyApiError as exc:
             raise HomeAssistantError(str(exc)) from exc
         await self.coordinator.api.litter_action(self.device_id, "set_dnd", data)
