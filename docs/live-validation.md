@@ -8,6 +8,14 @@ Start with read-only captures. This checklist is for the device owner; the autom
 4. Compare app/device values with Home Assistant: online state, mode, child lock, Do Not Disturb times, reminders, pet weight and toileting counts/durations. For DND, record NOTTY app clock times, device `time_zone_iana` if present, HA timezone, API readback clocks, and the result of a **single** confirmed write. Avoid reposting raw DND readback times; live tests showed that a same-state write shifted both boundaries by six hours. Verify readback times match the previous API values when only toggling DND, and check winter/summer behavior separately.
 5. Check events in your own time zone, including the date boundary. The current server-time assumption is Asia/Shanghai unless a UTC message field is provided.
 6. Observe a normal disconnect/reconnect and an expired session. Check unavailable state, recovery, stored renewed token, and the reauthentication flow.
+6a. For timezone issue #21, run the **read-only**
+   `uv run scripts/probe_timezones.py --session-file probe-output/session.pr30.private.json`
+   and inspect the value-free field/type inventory. A private raw capture can
+   establish the server-provided timezone IDs and actual catalog shape; do not
+   publish IDs, tokens, or private capture files. Verify the existing
+   `time_zone_iana` sensor reports the device IANA zone and keeps the
+   distinct Home Assistant and NOTTY API clock-source assumptions. No
+   `change_time_zone` write is enabled without independent validation.
 7. Only after read behavior is confirmed, verify each command individually using normal device precautions. Record the action, request field/code, resulting physical behavior, and reported state. Do not run a command sweep.
    - For issue #18, action 1 (with configured cycle) has been live-verified to enable/restart a countdown, and action 2 (with configured cycle) disables both reminder types. Action 3 without cycle is rejected. Action 3 with a changed cycle (30 → 29 days) is accepted for **litter renewal** and updated both the configured cycle and remaining days. Do **not** use action 2 to reset a reminder. Keep reset buttons and **trash-bag interval adjustment** disabled until their contracts are tested separately, one explicitly confirmed request at a time, with before/after enabled state, configured days, remaining days, and app verification. Do not send a command sweep.
 8. Check pet-weight updates preserve the existing litter-box association. This path has regression tests but still needs production validation.
