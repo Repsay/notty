@@ -40,22 +40,26 @@ def catalog_entries(response: JsonValue) -> list[JsonObject]:
         An offset is opaque server text, not necessarily a DST-aware UTC offset.
 
     Raises:
-        ValueError: If the response shape, fields, or catalog IDs are invalid.
+        TypeError: If the response or required fields have incorrect types.
+        ValueError: If a catalog entry is empty or has a duplicate ID.
     """
     if not isinstance(response, list):
         msg = "Timezone catalog must be an array"
-        raise ValueError(msg)
+        raise TypeError(msg)
     entries: list[JsonObject] = []
     seen_ids: set[str] = set()
     for item in response:
         if not isinstance(item, dict):
             msg = "Timezone catalog contains a non-object entry"
-            raise ValueError(msg)
+            raise TypeError(msg)
         entry: JsonObject = {}
         for field in CATALOG_FIELDS:
             value = item.get(field)
-            if not isinstance(value, str) or not value.strip():
+            if not isinstance(value, str):
                 msg = "Timezone catalog entry has a missing or invalid string field"
+                raise TypeError(msg)
+            if not value.strip():
+                msg = "Timezone catalog entry has an empty field"
                 raise ValueError(msg)
             entry[field] = value.strip()
         identifier = entry["id"]
@@ -75,6 +79,7 @@ def catalog_report(response: JsonValue, *, find: str | None = None) -> JsonObjec
         requested, a bounded list of matching catalog IDs/names/offsets.
 
     Raises:
+        TypeError: If response field types are invalid.
         ValueError: If entries are malformed or the search is too short.
     """
     entries = catalog_entries(response)
