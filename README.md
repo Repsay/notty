@@ -55,6 +55,11 @@ silently replaced by the HA zone in the diagnostic sensor.
 
 To inspect NOTTY's supported device-timezone catalog without changing the device,
 run `uv run scripts/probe_timezones.py --session-file probe-output/session.pr30.private.json`.
+Add `--device-id 52963` to also read **only timezone-related fields**
+from the account's device listing and litter-box info. The report excludes
+device IDs, aliases, credentials and unrelated device fields, allowing us to
+check whether NOTTY reports IANA IDs to HA while using Windows IDs in the
+timezone selection catalog.
 The read-only GET is confirmed on an owner's device: it returns an array of
 string `id`, `display_name` and `offset` fields. The default output is a
 **value-free schema inventory and entry count**. Add `--find Amsterdam`
