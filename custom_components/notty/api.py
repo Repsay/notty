@@ -26,6 +26,12 @@ PLAN_FIELDS = {
 PLAN_ACTIONS = set(PLAN_FIELDS)
 PLAN_TIME_RE = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]")
 MAX_LITTER_PLANS = 10
+
+
+ACTION_SET_MODE = "set_mode"
+DEVICE_TYPE_LITTER_BOX = "litter_box"
+ONE_KEY_ACTIONS = {"clean": 1, "empty": 2, "level": 3}
+LITTER_MODES = {1: "Auto", 2: "Scheduled", 3: "Soft stool"}
 MAX_DELAY_MINUTES = 15
 
 type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
@@ -79,12 +85,10 @@ LITTER_ACTION_ENDPOINTS = {
     "horizontal_calibration": "/device/litter_box/horizontal_calibration",
     "confirm_upgrade": "/device/confirm_upgrade",
     "set_alias": "/device/set_alias",
-    "change_time_zone": "/device/change_time_zone",
     "clear_statistics": "/device/clear_statistics/",
 }
 SAFE_LITTER_ACTIONS = (
     "one_key",
-    "set_mode",
     "set_key",
     "reset_litter_reminder",
     "reset_garbage_bag_reminder",
@@ -240,6 +244,75 @@ def plan_payload(action: str, data: JsonObject, rows: list[JsonObject], device_i
             raise NottyApiError(msg)
         payload["open"] = enabled
     return payload
+
+
+def one_key_value(action: JsonValue) -> int:
+    """Resolve only the operations traced through app callers and serialization.
+
+    Returns:
+        The integer sent as one_key by the app.
+
+    Raises:
+        NottyApiError: If an operation has no established litter-box contract.
+    """
+    if isinstance(action, str) and action in ONE_KEY_ACTIONS:
+        return ONE_KEY_ACTIONS[action]
+    if type(action) is int and action in ONE_KEY_ACTIONS.values():
+        return action
+    msg = "Unsupported litter-box one_key value; use clean=1, empty=2, or level=3"
+    raise NottyApiError(msg)
+
+
+def timezone_catalog(value: JsonValue) -> list[JsonObject]:
+    """Validate the live catalog without inventing IDs or DST offsets.
+
+    Returns:
+        Public catalog fields with exact server-provided strings.
+
+    Raises:
+        NottyApiError: If any required field or identifier is invalid.
+    """
+    if not isinstance(value, list) or not value:
+        msg = "NOTTY timezone catalog must be a nonempty array"
+        raise NottyApiError(msg)
+    rows: list[JsonObject] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            msg = "Invalid NOTTY timezone catalog record"
+            raise NottyApiError(msg)
+        row: JsonObject = {}
+        for key in ("id", "display_name", "offset"):
+            field = item.get(key)
+            if not isinstance(field, str) or not field.strip() or not field.isprintable():
+                msg = "Invalid NOTTY timezone catalog string"
+                raise NottyApiError(msg)
+            row[key] = field
+        identifier = str(row["id"])
+        if identifier in seen:
+            msg = "Duplicate NOTTY timezone catalog ID"
+            raise NottyApiError(msg)
+        seen.add(identifier)
+        rows.append(row)
+    return rows
+
+
+def timezone_payload(device_id: str, catalog_id: str, rows: list[JsonObject]) -> JsonObject:
+    """Use the selected Windows catalog ID in the APK's misnamed IANA field.
+
+    Returns:
+        Only the two fields serialized by the app.
+
+    Raises:
+        NottyApiError: If the physical ID or catalog membership is invalid.
+    """
+    if not device_id.isascii() or not device_id.isdecimal() or int(device_id) <= 0:
+        msg = "Timezone changes require a positive numeric physical device ID"
+        raise NottyApiError(msg)
+    if not any(row["id"] == catalog_id for row in rows):
+        msg = "Choose an exact ID from the current NOTTY timezone catalog"
+        raise NottyApiError(msg)
+    return {"user_device_id": int(device_id), "time_zone_iana": catalog_id}
 
 
 def reminder_payload(action: str, data: JsonObject) -> JsonObject:
@@ -568,6 +641,25 @@ class NottyTransport:
 
 class NottyApi(NottyTransport):
     """NOTTY account, litter-box and pet endpoints."""
+
+    async def time_zones(self) -> list[JsonObject]:
+        """Read the supported catalog on explicit request.
+
+        Returns:
+            Validated public timezone records.
+        """
+        return timezone_catalog(await self.request("GET", "/entity/get_time_zones"))
+
+    async def change_time_zone(self, device_id: str, catalog_id: str) -> JsonValue:
+        """Validate fresh catalog membership before one explicit timezone write.
+
+        Returns:
+            The server acknowledgement, not proof of schedule preservation.
+        """
+        rows = await self.time_zones()
+        return await self.request(
+            "POST", "/device/change_time_zone", data=timezone_payload(device_id, catalog_id, rows)
+        )
 
     @staticmethod
     def _find_first(result: JsonValue, keys: tuple[str, ...]) -> JsonValue:
@@ -1136,13 +1228,19 @@ class NottyApi(NottyTransport):
         return result
 
     async def command(self, device_id: str, action: JsonValue, device_type: str = "litter_box") -> JsonValue:
-        """Command.
+        """Send an APK-backed litter-box command.
 
         Returns:
-            JsonValue: The resulting command.
+            The decoded cloud response, which does not confirm a physical effect.
+
+        Raises:
+            NottyApiError: If the device kind or operation is unsupported.
         """
+        if device_type != DEVICE_TYPE_LITTER_BOX:
+            msg = "One-key commands are only established for litter boxes"
+            raise NottyApiError(msg)
         return await self.request(
-            "POST", f"/device/{device_type}/one_key", data={"user_device_id": device_id, "one_key": action}
+            "POST", "/device/litter_box/one_key", data={"user_device_id": device_id, "one_key": one_key_value(action)}
         )
 
     async def litter_action(self, device_id: str, action: str, data: JsonObject | None = None) -> JsonValue:
@@ -1160,11 +1258,13 @@ class NottyApi(NottyTransport):
         if not path:
             msg = f"Unsupported litter box action: {action}"
             raise NottyApiError(msg)
+        if action == ACTION_ONE_KEY:
+            return await self.command(device_id, (data or {}).get(ACTION_ONE_KEY))
+        if action == ACTION_SET_MODE:
+            msg = "NOTTY mode changes remain disabled pending schedule prerequisites and live validation"
+            raise NottyApiError(msg)
         settings = reminder_payload(action, data or {}) if action in REMINDER_CYCLE_FIELDS else (data or {})
         payload = {**settings, **self._device_payload(device_id)}
-        if action == ACTION_ONE_KEY and ACTION_ONE_KEY not in payload:
-            msg = "one_key action requires a one_key value"
-            raise NottyApiError(msg)
         if action == ACTION_SET_AUTO_DELAY:
             delay = payload.get("delay")
             if type(delay) is not int or not 1 <= delay <= MAX_DELAY_MINUTES:

@@ -39,9 +39,6 @@
       "empty": {
         "name": "Empty litter"
       },
-      "sterilize": {
-        "name": "Sterilize"
-      },
       "reset_litter_reminder": {
         "name": "Reset litter renewal reminder"
       },
