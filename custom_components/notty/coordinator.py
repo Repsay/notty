@@ -11,7 +11,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from custom_components.notty.api import JsonObject, JsonValue, NottyApi, NottyApiError, NottyAuthError, matches_value
+from custom_components.notty.api import (
+    JsonObject,
+    JsonValue,
+    NottyApi,
+    NottyApiError,
+    NottyAuthError,
+    matches_value,
+    plan_enabled,
+)
 from custom_components.notty.const import (
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
@@ -336,7 +344,7 @@ def _related_list_summary(key: str, value: list[JsonValue], local_today: date) -
     summary: JsonObject = {f"{key}_count": len(value)}
     rows = [item for item in value if isinstance(item, dict)]
     if key == FIELD_PLANS:
-        summary["enabled_plans_count"] = sum(bool(item.get("open")) for item in rows)
+        summary["enabled_plans_count"] = sum(plan_enabled(item.get("open")) is True for item in rows)
         times = [str(item["time"]) for item in rows if item.get("time")]
         if times:
             summary["plan_times"] = ", ".join(times)

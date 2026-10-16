@@ -10,9 +10,6 @@
       "empty": {
         "default": "mdi:delete-empty"
       },
-      "sterilize": {
-        "default": "mdi:shimmer"
-      },
       "reset_litter_reminder": {
         "default": "mdi:calendar-refresh"
       },
@@ -68,6 +65,11 @@
       "cloud_alias": {
         "default": "mdi:form-textbox"
       }
+    },
+    "update": {
+      "firmware": {
+        "default": "mdi:chip"
+      }
     }
   },
   "services": {
@@ -76,6 +78,9 @@
     },
     "litter_box_action": {
       "service": "mdi:tune"
+    },
+    "litter_box_schedule": {
+      "service": "mdi:calendar-clock"
     }
   }
 }

@@ -46,6 +46,33 @@
       "cloud_alias": {
         "name": "Cloudnaam"
       }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
+      }
+    }
+  },
+  "services": {
+    "litter_box_schedule": {
+      "name": "Reinigingsplannen kattenbak",
+      "description": "NOTTY-reinigingsplannen tonen, aanmaken, wijzigen, inschakelen, uitschakelen of verwijderen. Tijden gebruiken de NOTTY-planklok (HH:MM), zonder tijdzoneconversie. De reinigingsmodus blijft ongewijzigd.",
+      "fields": {
+        "user_device_id": {
+          "name": "Fysieke apparaat-ID"
+        },
+        "operation": {
+          "name": "Bewerking"
+        },
+        "plan_id": {
+          "name": "Plan-ID",
+          "description": "Vereist voor wijzigen, in-/uitschakelen en verwijderen. Gebruik het exacte ID uit de lijst."
+        },
+        "time": {
+          "name": "NOTTY-planklok",
+          "description": "Vereist voor aanmaken en wijzigen. Gebruik HH:MM volgens de NOTTY-planklok, zonder tijdzoneconversie."
+        }
+      }
     }
   }
 }

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
-from homeassistant.const import UnitOfMass, UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfMass, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from custom_components.notty.api import JsonValue, matches_value
 from custom_components.notty.binary_sensor import BINARY_KEYS, looks_boolean_key
-from custom_components.notty.coordinator import NottyCoordinator
+from custom_components.notty.coordinator import NOTTY_SERVER_TIME_ZONE, NottyCoordinator
 from custom_components.notty.entity import NottyEntity, merged_device_data, title_from_key, value_from_block
 from custom_components.notty.models import DeviceBlock, DeviceData, NottyConfigEntry
 
@@ -18,6 +19,7 @@ DECIMAL_SEPARATOR = "."
 FIELD_SEX = "sex"
 DATETIME_FIELD_FRAGMENT = "datetime"
 FIELD_EVENTS = "events"
+FIELD_DEVICE_TIME_ZONE = "time_zone_iana"
 
 SKIP_KEYS = {
     "id",
@@ -160,6 +162,44 @@ ENUM_OPTIONS = {
 ENUM_VALUE_PREFIX = {"lb_mode": "mode", "lb_status": "status"}
 
 
+def timezone_context(value: JsonValue, ha_zone: str, *, at: datetime | None = None) -> DeviceData:
+    """Report device/HA zone offsets without conflating them with API clocks.
+
+    Returns:
+        Read-only timezone diagnostics. Missing/invalid IANA names never
+        become guessed device zones.
+    """
+    context: DeviceData = {
+        "source": "notty_device",
+        "home_assistant_time_zone": ha_zone,
+        "server_clock_assumption": NOTTY_SERVER_TIME_ZONE,
+        "device_iana_valid": False,
+    }
+    if not isinstance(value, str) or not value:
+        return context
+    try:
+        device_tz = ZoneInfo(value)
+        home_tz = ZoneInfo(ha_zone)
+    except KeyError, ValueError, ZoneInfoNotFoundError:
+        return context
+    now = at or datetime.now(UTC)
+    if now.tzinfo is None or now.utcoffset() is None:
+        return context
+    device_offset = now.astimezone(device_tz).utcoffset()
+    ha_offset = now.astimezone(home_tz).utcoffset()
+    if device_offset is None or ha_offset is None:
+        return context
+    device_minutes = int(device_offset.total_seconds() // 60)
+    ha_minutes = int(ha_offset.total_seconds() // 60)
+    context.update({
+        "device_iana_valid": True,
+        "device_utc_offset_minutes": device_minutes,
+        "home_assistant_utc_offset_minutes": ha_minutes,
+        "device_minus_ha_offset_minutes": device_minutes - ha_minutes,
+    })
+    return context
+
+
 def _is_scalar(value: JsonValue) -> bool:
     return value is not None and not isinstance(value, (dict, list, set, tuple))
 
@@ -285,6 +325,8 @@ class NottySensor(NottyEntity, SensorEntity):
         self.key = key
         self._attr_unique_id = f"{device_id}_{key}"
         self._attr_name = title_from_key(key)
+        if key == FIELD_DEVICE_TIME_ZONE:
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
         raw_value = value_from_block(self.block, self.key)
         device_class, unit, state_class = sensor_metadata(key, raw_value)
         if device_class is not None:
@@ -320,6 +362,10 @@ class NottySensor(NottyEntity, SensorEntity):
             DeviceData | None: The resulting extra state attributes.
         """
         attributes = {}
+        if self.key == FIELD_DEVICE_TIME_ZONE:
+            attributes.update(
+                timezone_context(value_from_block(self.block, self.key), self.coordinator.hass.config.time_zone)
+            )
         if self.key in ENUM_OPTIONS:
             attributes["raw_value"] = value_from_block(self.block, self.key)
         source_key = RELATED_ATTRIBUTE_KEYS.get(self.key)

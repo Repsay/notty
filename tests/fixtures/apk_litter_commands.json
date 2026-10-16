@@ -1,0 +1,14 @@
+{
+  "apk_version": "1.1.30",
+  "sha256": "3b6dc21037f2802e92233ecd9f685e76b03a79afa2d82dd52a5dfcd689a18e6a",
+  "one_key": [
+    {"name": "clean", "label": "立即清理", "label_address": "0xceb6a8", "caller": "0xcec660", "confirmation": "0xcec238", "payload": {"user_device_id": "synthetic-box", "one_key": 1}},
+    {"name": "empty", "label": "清除猫砂", "label_address": "0xcebdb0", "caller": "0xcec110", "confirmation": "0xcec254", "payload": {"user_device_id": "synthetic-box", "one_key": 2}},
+    {"name": "level", "label": "抚平猫砂", "label_address": "0xceba2c", "caller": "0xcec610", "confirmation": "0xcec26c", "payload": {"user_device_id": "synthetic-box", "one_key": 3}}
+  ],
+  "mode": [
+    {"label": "Auto", "confirmation": "0xcecb28", "caller": "0xced1d8", "payload": {"user_device_id": "synthetic-box", "mode": 1}},
+    {"label": "Scheduled", "confirmation": "0xcecb44", "caller": "0xced188", "payload": {"user_device_id": "synthetic-box", "mode": 2}},
+    {"label": "Soft stool", "confirmation": "0xcecb5c", "caller": "0xcec964", "payload": {"user_device_id": "synthetic-box", "mode": 3}}
+  ]
+}

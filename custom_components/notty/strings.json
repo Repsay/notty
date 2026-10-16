@@ -39,9 +39,6 @@
       "empty": {
         "name": "Empty litter"
       },
-      "sterilize": {
-        "name": "Sterilize"
-      },
       "reset_litter_reminder": {
         "name": "Reset litter renewal reminder"
       },
@@ -103,6 +100,11 @@
       "cloud_alias": {
         "name": "Cloud name"
       }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
+      }
     }
   },
   "services": {
@@ -130,6 +132,26 @@
         },
         "data": {
           "name": "Data"
+        }
+      }
+    },
+    "litter_box_schedule": {
+      "name": "Litter box cleaning schedules",
+      "description": "List, create, update, enable, disable or delete NOTTY cleaning plans. Times use the NOTTY schedule clock (HH:MM), with no timezone conversion. Creating or enabling a plan may schedule cleaning; cleaning mode is left unchanged.",
+      "fields": {
+        "user_device_id": {
+          "name": "Physical user device ID"
+        },
+        "operation": {
+          "name": "Operation"
+        },
+        "plan_id": {
+          "name": "Plan ID",
+          "description": "Required for update, enable, disable and delete. Obtain the exact ID with the list operation."
+        },
+        "time": {
+          "name": "NOTTY schedule clock",
+          "description": "Required for create and update. Use HH:MM as shown by the NOTTY schedule clock, without timezone conversion."
         }
       }
     }
