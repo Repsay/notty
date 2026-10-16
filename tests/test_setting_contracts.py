@@ -88,9 +88,7 @@ def test_editing_time_preserves_disabled_switch_and_led_zero() -> None:
         (datetime(2026, 11, 16, 12, tzinfo=UTC), "06:00", "21:00"),
     ],
 )
-def test_dnd_readback_to_ha_handles_dst(
-    when: datetime, expected_start: str, expected_end: str
-) -> None:
+def test_dnd_readback_to_ha_handles_dst(when: datetime, expected_start: str, expected_end: str) -> None:
     """Convert Shanghai read clocks into Amsterdam, including winter time."""
     start = dnd_local_time("13:00", "Europe/Amsterdam", at=when)
     end = dnd_local_time("04:00", "Europe/Amsterdam", at=when)
@@ -100,31 +98,14 @@ def test_dnd_readback_to_ha_handles_dst(
 
 def test_dnd_device_timezone_wins_over_fallback() -> None:
     """A reported NOTTY timezone takes priority over the HA fallback."""
-    current = {
-        **DND_STATE,
-        "time_zone_iana": "Europe/Amsterdam",
-        "dnd_begin_time": "13:00",
-        "dnd_end_time": "04:00",
-    }
-    result = dnd_payload(
-        current, time_zone="UTC", at=datetime(2026, 10, 16, 12, tzinfo=UTC)
-    )
-    assert result == {
-        "switch": 1,
-        "led": 2,
-        "dnd_begin_time": "07:00",
-        "dnd_end_time": "22:00",
-    }
+    current = {**DND_STATE, "time_zone_iana": "Europe/Amsterdam", "dnd_begin_time": "13:00", "dnd_end_time": "04:00"}
+    result = dnd_payload(current, time_zone="UTC", at=datetime(2026, 10, 16, 12, tzinfo=UTC))
+    assert result == {"switch": 1, "led": 2, "dnd_begin_time": "07:00", "dnd_end_time": "22:00"}
 
 
 def test_dnd_ha_edit_to_other_notty_device_timezone() -> None:
     """Edited HA clocks convert to the NOTTY device zone; preserved data also does."""
-    current = {
-        **DND_STATE,
-        "time_zone_iana": "America/New_York",
-        "dnd_begin_time": "13:00",
-        "dnd_end_time": "04:00",
-    }
+    current = {**DND_STATE, "time_zone_iana": "America/New_York", "dnd_begin_time": "13:00", "dnd_end_time": "04:00"}
     result = dnd_payload(
         current,
         time_zone="Europe/Amsterdam",
@@ -132,12 +113,7 @@ def test_dnd_ha_edit_to_other_notty_device_timezone() -> None:
         at=datetime(2026, 10, 16, 12, tzinfo=UTC),
         dnd_begin_time="08:00",
     )
-    assert result == {
-        "switch": 1,
-        "led": 2,
-        "dnd_begin_time": "02:00",
-        "dnd_end_time": "16:00",
-    }
+    assert result == {"switch": 1, "led": 2, "dnd_begin_time": "02:00", "dnd_end_time": "16:00"}
 
 
 def test_dnd_missing_or_invalid_device_timezone_refuses_write() -> None:
