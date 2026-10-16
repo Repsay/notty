@@ -94,9 +94,7 @@ class NottySwitch(NottyEntity, SwitchEntity):
         if self.entity_description.action == ACTION_SET_DND:
             try:
                 data = dnd_payload(
-                    merged_device_data(self.block),
-                    time_zone=self.coordinator.hass.config.time_zone,
-                    switch_dnd=value,
+                    merged_device_data(self.block), time_zone=self.coordinator.hass.config.time_zone, switch_dnd=value
                 )
             except NottyApiError as exc:
                 raise HomeAssistantError(str(exc)) from exc
