@@ -201,12 +201,7 @@ async def test_device_timezone_inspection_uses_only_list_and_info_reads() -> Non
     api = MagicMock()
     api.devices = AsyncMock(
         return_value=[
-            {
-                "user_device_id": CATALOG_DEVICE_ID,
-                "time_zone_iana": LOCAL_ZONE,
-                "time_zone_id": "W. Europe Standard Time",
-                "alias": SAMPLE_CATALOG_SENTINEL,
-            }
+            {"user_device_id": CATALOG_DEVICE_ID, "time_zone_iana": LOCAL_ZONE, "alias": SAMPLE_CATALOG_SENTINEL}
         ]
     )
     api.litter_info = AsyncMock(
@@ -214,7 +209,7 @@ async def test_device_timezone_inspection_uses_only_list_and_info_reads() -> Non
     )
     result = await inspect_device_timezone(api, CATALOG_DEVICE_ID)
     assert result == {
-        "device_listing": {"time_zone_iana": LOCAL_ZONE, "time_zone_id": "W. Europe Standard Time"},
+        "device_listing": {"time_zone_iana": LOCAL_ZONE},
         "litter_box_info": {"time_zone_iana": LOCAL_ZONE},
     }
     api.litter_info.assert_awaited_once_with(CATALOG_DEVICE_ID)
