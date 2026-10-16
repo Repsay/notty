@@ -246,7 +246,7 @@ cleaning mode unchanged. The app describes Scheduled mode as cleaning at configu
 fixed times; behavior outside that mode and with an empty plan list remains
 unverified. Create does not send an enable state, matching the app; inspect readback
 to see the server's resulting state. Update preserves a disabled plan by omitting
-its enable field. Unknown plan quantity/recurrence types block time edits.
+its enable field. Unknown plan quantities/types block time edits. Live litter-box plans use `plan_type_id: 2` and may omit quantity; the app's edit payload still uses `quantity: 1`.
 
 **Times are raw NOTTY schedule-clock values in `HH:MM`, not Home Assistant local
 times or UTC timestamps.** Readback returns `clock_basis: notty_schedule_clock`

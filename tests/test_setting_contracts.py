@@ -132,9 +132,9 @@ async def test_child_lock_request_contract(*, enabled: int | str | bool) -> None
     """Verify child lock request contract."""
     api = NottyApi(MagicMock())
     api.request = AsyncMock()
-    await api.litter_action("box-1", "set_key", {"switch": enabled})
+    await api.litter_action("123", "set_key", {"switch": enabled})
     api.request.assert_awaited_once_with(
-        "POST", "/device/litter_box/set_key", data={"user_device_id": "box-1", "device_id": "box-1", "switch": enabled}
+        "POST", "/device/litter_box/set_key", data={"user_device_id": 123, "switch": enabled}
     )
 
 

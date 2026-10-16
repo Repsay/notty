@@ -18,7 +18,7 @@ from custom_components.notty.schedule import schedule_request, schedule_response
 from tests.test_lifecycle import setup
 
 CONTRACT = json.loads((Path(__file__).parent / "fixtures/apk_litter_plans.json").read_text())
-PLAN = {"plan_id": 81, "time": "07:00", "open": False, "quantity": 1, "plan_type_id": 1}
+PLAN = {"plan_id": 81, "time": "07:00", "open": False, "quantity": 1, "plan_type_id": 2}
 EXPECTED_FALSE_COUNT = 1
 EXPECTED_EDIT = "edit_plan"
 EXPECTED_OPEN = "open_plan"
@@ -144,7 +144,7 @@ async def test_toggle_is_idempotent_and_preserves_other_fields(*, enabled: bool)
     assert api.request.await_count == 1
 
 
-@pytest.mark.parametrize("changes", [{"quantity": 2}, {"quantity": True}, {"plan_type_id": 2}, {"plan_type_id": "1"}])
+@pytest.mark.parametrize("changes", [{"quantity": 2}, {"quantity": True}, {"plan_type_id": 9}, {"plan_type_id": "2"}])
 def test_edit_does_not_reinterpret_other_plan_types(changes: dict[str, object]) -> None:
     """Unknown recurrence/quantity is not overwritten by the litter-box default."""
     with pytest.raises(NottyApiError, match="unsupported schedule"):
@@ -271,3 +271,14 @@ def test_plan_rows_preserve_id_type_and_unknown_read_fields() -> None:
     before = json.dumps(rows)
     assert plan_rows(rows) == rows
     assert json.dumps(rows) == before
+
+
+def test_live_litter_plan_shape_with_type_two_and_omitted_quantity_is_editable() -> None:
+    """Real litter-box plans use type 2 and omit quantity; requests still use quantity 1."""
+    current = {"plan_id": 81, "time": "08:00", "open": True, "plan_type_id": 2}
+    assert plan_payload("edit_plan", {"plan_id": 81, "time": "23:58"}, [current], "123") == {
+        "plan_id": 81,
+        "time": "23:58",
+        "quantity": 1,
+    }
+    assert current == {"plan_id": 81, "time": "08:00", "open": True, "plan_type_id": 2}

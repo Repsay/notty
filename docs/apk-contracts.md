@@ -13,9 +13,9 @@ output remain local and ignored. Tests use synthetic data.
 | Litter renewal reminder | `open_litter_remind`, `default_remaining_days`, `remaining_days` | `/device/litter_box/set_litter_remind`: `action` (1 enable, 2 disable) and required `cycle_time`; `user_device_id` |
 | Trash bag reminder | `open_garbagebag_remind`, `garbage_bag_cycle_time`, `garbage_bag_remaining_days` | `/device/litter_box/set_garbage_bag_remind`: `action` (1 enable, 2 disable) and required `cycle_time`; `user_device_id` |
 
-The client currently adds a `device_id` alias alongside `user_device_id` for
-device actions. That is existing compatibility behavior, not a field established
-by these app paths.
+Some older device actions retain a `device_id` alias alongside `user_device_id`.
+That is compatibility behavior, not a field established by these app paths.
+Child lock now uses only the exact APK fields.
 
 ## Child lock (#11)
 
@@ -24,6 +24,12 @@ in context field `0x13`. Its shared closure at `0xccd7dc` converts the Dart bool
 to an integer (`cset`, then the Dart small-integer tag shift): true becomes `1`,
 false becomes `0`. The map inserts `switch` at `0xcd3ebc` and POSTs at `0xcd3f04`.
 Reading state continues to use `switch_key` and entity unique IDs are unchanged.
+The physical-ID closure `0xcc1b14` boxes the controller ID as an integer. The
+child-lock builder now sends exactly integer `user_device_id` and integer
+`switch`, rejecting legacy aliases, target overrides and non-enum values. An
+owner-authorized live change and restoration both matched fresh API readback
+after two seconds on 17 October 2026. This verifies the endpoint flag transition,
+not physical button behavior on every model.
 
 ## Do Not Disturb (#12)
 

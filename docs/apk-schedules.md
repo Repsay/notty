@@ -80,3 +80,12 @@ read-only listing and failures without retries. No schedule writes were performe
 against the owner's account or physical device. Server acceptance, creation's
 default enable state, actual firing time, DST behavior and recurrence require
 owner-observed live checks; #17 remains open for that validation.
+
+## Live plan-schema correction (17 October 2026)
+
+Fresh litter-box plans, including a temporary plan created with this client,
+report `plan_type_id: 2` and omit `quantity`. The earlier synthetic type-1
+assumption incorrectly blocked edits. Editing now accepts the observed type 2
+(or absent type metadata) and quantity 1 (or absent quantity), while rejecting
+unknown types/quantities. The write still sends only time, quantity 1 and the
+selected native plan ID. No recurrence meaning is inferred from the type marker.
