@@ -196,7 +196,9 @@ async def test_reset_button_is_blocked_until_verified(
     await setup(hass)
     entity_name = "reset_litter_renewal_reminder" if button == RESET_LITTER else "reset_trash_bag_reminder"
     with pytest.raises(HomeAssistantError, match="disabled pending live endpoint verification"):
-        await hass.services.async_call("button", "press", {"entity_id": f"button.test_box_{entity_name}"}, blocking=True)
+        await hass.services.async_call(
+            "button", "press", {"entity_id": f"button.test_box_{entity_name}"}, blocking=True
+        )
     runtime_api.litter_action.assert_not_awaited()
     runtime_api.endpoint_action.assert_not_awaited()
 
