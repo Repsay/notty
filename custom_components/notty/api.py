@@ -92,8 +92,9 @@ REMINDER_CYCLE_FIELDS = {
     "set_garbage_bag_reminder_days": "garbage_bag_cycle_time",
 }
 REMINDER_DAY_RANGES = {"default_remaining_days": range(5, 31), "garbage_bag_cycle_time": range(2, 16)}
-REMINDER_DISABLE = 3
-REMINDER_RESET = 2
+REMINDER_ENABLE = 1
+REMINDER_DISABLE = 2
+REMINDER_TOGGLE_ACTIONS = {"set_litter_remind", "set_garbage_bag_remind"}
 
 LIST_KEYS = ("list", "devices", "rows", "items", "data")
 LITTER_BIND_KEYS = ("bind_litter_box", "litter_box", "litter_box_id", "litter_box_user_device_id", "lb_user_device_id")
@@ -118,29 +119,32 @@ class NottyAuthError(NottyApiError):
 
 
 def reminder_payload(action: str, data: JsonObject) -> JsonObject:
-    """Build the app's enable (1), reset/cycle (2), or disable (3) request.
+    """Validate observed live enable (1) and disable (2) reminder requests.
+
+    Reset and interval-update actions are blocked until their live API
+    semantics are verified; action 2 was observed to *disable* the reminder.
 
     Returns:
-        Validated operation fields without read-state names or unrelated settings.
+        Strictly validated settings without unrelated device read fields.
 
     Raises:
-        NottyApiError: If the operation or configured interval is unknown.
+        NottyApiError: If the operation or configured interval is unverified.
     """
-    operation = data.get("action") if action in {"set_litter_remind", "set_garbage_bag_remind"} else REMINDER_RESET
-    if type(operation) is not int or operation not in {1, REMINDER_RESET, REMINDER_DISABLE}:
-        msg = "Reminder action must be an integer: enable=1, reset=2, disable=3"
+    if action not in REMINDER_TOGGLE_ACTIONS:
+        msg = "Reminder reset and interval changes are disabled pending live endpoint verification"
         raise NottyApiError(msg)
-    payload: JsonObject = {"action": operation}
-    if operation != REMINDER_DISABLE:
-        cycle = data.get("cycle_time")
-        if isinstance(cycle, str) and cycle.isascii() and cycle.isdecimal():
-            cycle = int(cycle)
-        allowed = REMINDER_DAY_RANGES[REMINDER_CYCLE_FIELDS[action]]
-        if type(cycle) is not int or cycle not in allowed:
-            msg = f"Reminder cycle_time must be an integer from {allowed.start} to {allowed.stop - 1} days"
-            raise NottyApiError(msg)
-        payload["cycle_time"] = cycle
-    return payload
+    operation = data.get("action")
+    if type(operation) is not int or operation not in {REMINDER_ENABLE, REMINDER_DISABLE}:
+        msg = "Reminder action must be an integer: enable=1, disable=2"
+        raise NottyApiError(msg)
+    cycle = data.get("cycle_time")
+    if isinstance(cycle, str) and cycle.isascii() and cycle.isdecimal():
+        cycle = int(cycle)
+    allowed = REMINDER_DAY_RANGES[REMINDER_CYCLE_FIELDS[action]]
+    if type(cycle) is not int or cycle not in allowed:
+        msg = f"Reminder cycle_time must be an integer from {allowed.start} to {allowed.stop - 1} days"
+        raise NottyApiError(msg)
+    return {"action": operation, "cycle_time": cycle}
 
 
 def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
