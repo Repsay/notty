@@ -114,6 +114,10 @@ Use `--find Amsterdam` to show at most ten matching `id`,
 `--capture-raw` remains optional and stores raw replies only in
 local `*.private.json` files. The public integration does **not**
 poll the catalog, infer timezone IDs from IANA names, or expose writes.
+The optional `--device-id` argument adds two read-only calls (account
+device listing and the selected litter-box info) and returns only
+whitelisted timezone fields; it never includes device identifiers,
+aliases or unrelated account fields.
 
 The existing dynamic `time_zone_iana` sensor gets read-only diagnostic
 attributes: validated device IANA zone, current device/HA UTC offsets,
