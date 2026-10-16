@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Read NOTTY's timezone catalog schema without changing device settings.
+"""Inspect the verified NOTTY timezone catalog without changing device settings.
 
-The GET method/path are APK-inferred and still need owner verification.
-The default output lists only JSON paths and types, never response values.
-Optionally save raw data to a private file for local contract investigation.
+By default, display only JSON paths, types and the number of catalog entries.
+Pass --find Amsterdam to show ONLY matching public timezone records, including
+their server-provided IDs. A raw capture is optional and remains local/private.
 """
 
 from __future__ import annotations
@@ -27,19 +27,78 @@ from scripts.console import console
 from scripts.validate_commands import load_session
 
 TIME_ZONE_CATALOG_PATH = "/entity/get_time_zones"
+CATALOG_FIELDS = ("id", "display_name", "offset")
+MAX_MATCHES = 10
+MIN_FIND_LENGTH = 3
 
 
-def catalog_report(response: JsonValue) -> JsonObject:
-    """Summarize structure only; never emit remote account or device values.
+def catalog_entries(response: JsonValue) -> list[JsonObject]:
+    """Validate the owner-observed list of timezone records.
 
     Returns:
-        A value-free JSON path/type inventory for the server response.
+        Catalog entries containing only string id, display_name and offset.
+        An offset is opaque server text, not necessarily a DST-aware UTC offset.
+
+    Raises:
+        ValueError: If the response shape, fields, or catalog IDs are invalid.
     """
-    return {
+    if not isinstance(response, list):
+        msg = "Timezone catalog must be an array"
+        raise ValueError(msg)
+    entries: list[JsonObject] = []
+    seen_ids: set[str] = set()
+    for item in response:
+        if not isinstance(item, dict):
+            msg = "Timezone catalog contains a non-object entry"
+            raise ValueError(msg)
+        entry: JsonObject = {}
+        for field in CATALOG_FIELDS:
+            value = item.get(field)
+            if not isinstance(value, str) or not value.strip():
+                msg = "Timezone catalog entry has a missing or invalid string field"
+                raise ValueError(msg)
+            entry[field] = value.strip()
+        identifier = entry["id"]
+        if not isinstance(identifier, str) or identifier in seen_ids:
+            msg = "Timezone catalog has a duplicate or invalid ID"
+            raise ValueError(msg)
+        seen_ids.add(identifier)
+        entries.append(entry)
+    return entries
+
+
+def catalog_report(response: JsonValue, *, find: str | None = None) -> JsonObject:
+    """Report schema, optionally revealing only matching public timezone entries.
+
+    Returns:
+        Value-free inventory and entry count by default; when explicitly
+        requested, a bounded list of matching catalog IDs/names/offsets.
+
+    Raises:
+        ValueError: If entries are malformed or the search is too short.
+    """
+    entries = catalog_entries(response)
+    report: JsonObject = {
         "method": "GET",
         "endpoint": TIME_ZONE_CATALOG_PATH,
+        "entry_count": len(entries),
         "paths_and_types": cast("JsonObject", probe_datapoints.load_inventory(response)),
     }
+    if find is not None:
+        term = find.strip().casefold()
+        if len(term) < MIN_FIND_LENGTH:
+            msg = "Timezone search must contain at least three characters"
+            raise ValueError(msg)
+        matches = [
+            entry for entry in entries
+            if any(term in str(entry[field]).casefold() for field in ("id", "display_name"))
+        ]
+        report.update({
+            "match_count": len(matches),
+            "matches_truncated": len(matches) > MAX_MATCHES,
+            "matches": matches[:MAX_MATCHES],
+        })
+    return report
 
 
 async def collect_catalog(api: probe_datapoints.load_api.NottyApi) -> JsonValue:
@@ -57,6 +116,7 @@ class TimezoneProbeOptions:
 
     session_file: Path
     capture_raw: Path | None = None
+    find: str | None = None
 
 
 async def run(options: TimezoneProbeOptions) -> JsonObject:
@@ -85,7 +145,7 @@ async def run(options: TimezoneProbeOptions) -> JsonObject:
         response = await collect_catalog(api)
     if options.capture_raw:
         probe_datapoints.write_json(options.capture_raw, {"time_zones": response})
-    return catalog_report(response)
+    return catalog_report(response, find=options.find)
 
 
 def main() -> int:
@@ -97,6 +157,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--session-file", type=Path, required=True, help="Owner-only *.private.json session")
     parser.add_argument("--capture-raw", type=Path, help="Save response locally to a new *.private.json file")
+    parser.add_argument("--find", help="Print up to 10 catalog entries matching an ID or display name")
     options = cast("TimezoneProbeOptions", parser.parse_args())
     try:
         console(json.dumps(asyncio.run(run(options)), indent=2))
