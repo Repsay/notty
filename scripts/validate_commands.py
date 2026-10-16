@@ -143,7 +143,14 @@ def _setting_plan(
         message = f"Current {field} is unknown; no write performed"
         raise ValidationError(message)
     return SettingPlan(
-        device_id, action, str(value), endpoint, field, requested, current, action_payload(action, requested, before, time_zone=time_zone)
+        device_id,
+        action,
+        str(value),
+        endpoint,
+        field,
+        requested,
+        current,
+        action_payload(action, requested, before, time_zone=time_zone),
     )
 
 
@@ -188,13 +195,7 @@ async def _read_back(
 
 
 async def validate(
-    api: NottyApi,
-    *,
-    device_id: str,
-    action: str,
-    value: str | None,
-    execute: bool,
-    **hooks: Unpack[ValidationHooks]
+    api: NottyApi, *, device_id: str, action: str, value: str | None, execute: bool, **hooks: Unpack[ValidationHooks]
 ) -> int:
     """Validate one selected setting or print a read-only plan.
 
@@ -287,9 +288,7 @@ def main() -> int:
     parser.add_argument("--device-id", required=True, help="Physical user_device_id")
     parser.add_argument("action", choices=("status", "child-lock", "dnd"), nargs="?", default="status")
     parser.add_argument("--state", choices=("on", "off"))
-    parser.add_argument(
-        "--time-zone", help="Fallback IANA timezone only when device does not report time_zone_iana"
-    )
+    parser.add_argument("--time-zone", help="Fallback IANA timezone only when device does not report time_zone_iana")
     parser.add_argument(
         "--execute", action="store_true", help="Allow one real settings write after a typed confirmation"
     )
