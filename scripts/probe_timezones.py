@@ -31,6 +31,7 @@ CATALOG_FIELDS = ("id", "display_name", "offset")
 MAX_MATCHES = 10
 MIN_FIND_LENGTH = 3
 MAX_TIMEZONE_TEXT_LENGTH = 128
+SOURCE_PET = "pet"
 DEVICE_TIMEZONE_KEYS = ("time_zone_iana", "time_zone", "timezone", "time_zone_id", "timezone_id")
 
 
@@ -142,7 +143,7 @@ async def inspect_device_timezone(api: probe_datapoints.load_api.NottyApi, devic
         (
             device
             for device in devices
-            if device.get("_notty_source") != "pet"
+            if device.get("_notty_source") != SOURCE_PET
             and str(device.get("user_device_id") or device.get("device_id") or "") == device_id
         ),
         None,
