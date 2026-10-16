@@ -510,7 +510,7 @@ class NottyCoordinator(DataUpdateCoordinator[dict]):
                         if isinstance(pet_devices, list):
                             # Keep the raw binding list for safe pet-weight writes.
                             info["pet_devices"] = pet_devices
-                            linked_id = self.api._pet_litter_device_id({"pet_devices": pet_devices})
+                            linked_id = NottyApi._pet_litter_device_id({"pet_devices": pet_devices})
                             if linked_id:
                                 device["_notty_litter_user_device_id"] = linked_id
                                 info["litter_user_device_id"] = linked_id
