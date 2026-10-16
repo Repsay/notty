@@ -137,7 +137,6 @@ async def test_device_id_mismatch_stops_before_any_write() -> None:
     api.litter_action.assert_not_awaited()
 
 
-
 async def test_live_dnd_same_state_write_detects_shifted_schedule() -> None:
     """A matching switch cannot mask a changed DND schedule."""
     api = make_api(switch_dnd=1)
