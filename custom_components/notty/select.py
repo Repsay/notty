@@ -112,7 +112,7 @@ def _litter_reminder_enabled(value: JsonValue) -> bool:
     Returns:
         Whether the reminder state is explicitly enabled.
     """
-    return value is True or (type(value) is int and value == 1) or value in ("1", "true")
+    return value is True or (type(value) is int and value == 1) or (isinstance(value, str) and value in {"1", "true"})
 
 
 class NottySelect(NottyEntity, SelectEntity):
