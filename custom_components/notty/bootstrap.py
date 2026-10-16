@@ -8,6 +8,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from custom_components.notty.api import (
     REMINDER_CYCLE_FIELDS,
+    REMINDER_LITTER_INTERVAL_ACTION,
     SAFE_LITTER_ACTIONS,
     JsonObject,
     NottyApi,
@@ -69,7 +70,7 @@ def _validate_litter_interval_change(coordinator: NottyCoordinator, device_id: s
     """
     block = coordinator.data[device_id]
     enabled = value_from_block(block, "open_litter_remind")
-    if not (enabled is True or (type(enabled) is int and enabled == 1) or enabled in ("1", "true")):
+    if not (enabled is True or (type(enabled) is int and enabled == 1) or (isinstance(enabled, str) and enabled in {"1", "true"})):
         msg = "Litter interval changes require an enabled reminder"
         raise NottyApiError(msg)
     current_cycle = value_from_block(block, "default_remaining_days")
@@ -121,7 +122,7 @@ def _register_services(hass: HomeAssistant) -> None:
         try:
             if action in REMINDER_CYCLE_FIELDS:
                 action_data = reminder_payload(action, action_data)
-                if action == "set_litter_reminder_days":
+                if action == REMINDER_LITTER_INTERVAL_ACTION:
                     _validate_litter_interval_change(coordinator, user_device_id, action_data)
             await coordinator.api.litter_action(user_device_id, action, action_data)
         except NottyApiError as err:
