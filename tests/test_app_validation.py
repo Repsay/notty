@@ -158,3 +158,38 @@ def test_acknowledged_but_unchanged_api_write_is_a_mismatch() -> None:
     capture: JsonObject = {"request": {"operation": "set_key", "changes": {"switch": 1}}}
     assert app_validation.write_readback("lock", capture, {"info": {"switch_key": 0}}) == EXPECTED_MISMATCH
     assert app_validation.write_readback("lock", capture, {"info": {"switch_key": 1}}) != EXPECTED_MISMATCH
+
+
+async def test_delayed_readback_polls_without_repeating_the_write() -> None:
+    """An asynchronous device acknowledgement can settle after the first GET."""
+    api = MagicMock()
+    request: JsonObject = {"operation": "set_key", "changes": {"switch": 1}}
+    snapshots = [({"info": {"switch_key": 0}}, []), ({"info": {"switch_key": 1}}, [])]
+    with patch.object(app_validation, "collect", AsyncMock(side_effect=snapshots)) as collect:
+        data, errors = await app_validation.read_until_applied(
+            api, "lock", app_actions.Target("123", "", {}), request, app_validation.Options(readback_interval=0)
+        )
+    assert data["info"]["switch_key"] == 1
+    assert errors == []
+    assert collect.await_count == len(snapshots)
+    api.request.assert_not_called()
+
+
+async def test_final_readback_mismatch_is_not_hidden_by_polling() -> None:
+    """Exhausting GET attempts retains the failed requested-value comparison."""
+    request: JsonObject = {"operation": "set_key", "changes": {"switch": 1}}
+    with patch.object(app_validation, "collect", AsyncMock(return_value=({"info": {"switch_key": 0}}, []))):
+        data, _ = await app_validation.read_until_applied(
+            MagicMock(), "lock", app_actions.Target("123", "", {}), request, app_validation.Options(readback_attempts=1)
+        )
+    assert app_validation.write_readback("lock", {"request": request}, data) == EXPECTED_MISMATCH
+
+
+@pytest.mark.parametrize("switch", [True, "1", 1.0, -1, 2, None])
+async def test_child_lock_rejects_non_app_switch_encodings(switch: JsonValue) -> None:
+    """The integer enum is not a loosely coerced Boolean/string."""
+    api = NottyApi(MagicMock())
+    api.request = AsyncMock()
+    with pytest.raises(NottyApiError, match="integer switch"):
+        await api.litter_action("123", "set_key", {"switch": switch})
+    api.request.assert_not_awaited()

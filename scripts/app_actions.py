@@ -34,6 +34,8 @@ UPDATE = "update"
 ALIAS = "alias"
 PETS = "pets"
 NOTIFICATIONS = "notifications"
+DND = "dnd"
+ASSOCIATIONS = "associations"
 
 
 @dataclass
@@ -337,6 +339,8 @@ def restore_request(feature: str, operation: str, changes: JsonObject, before: J
     """
     if feature in {"lock", "settings"} and operation in {SET_KEY, SET_DELAY, SET_MODE, "set_language"}:
         return _setting_restore(operation, changes, before)
+    if feature == DND and operation == SET_DND:
+        return _dnd_restore(changes, before)
     if feature == ALIAS:
         device = before.get("device")
         if isinstance(device, dict):
@@ -347,11 +351,13 @@ def restore_request(feature: str, operation: str, changes: JsonObject, before: J
         profile = before.get("profile")
         if isinstance(profile, dict) and all(key in profile for key in changes):
             return "update", profile_changes({key: profile[key] for key in changes})
+    if feature == ASSOCIATIONS:
+        return _association_restore(changes, before)
     if feature == NOTIFICATIONS:
         restored = _notification_restore(changes, before)
         if restored is not None:
             return restored
-    msg = "Automatic restoration is supported only for lock, mode/delay/language, alias, pet fields and notifications"
+    msg = "Automatic restoration requires a supported lock/DND toggle, mode/delay/language, alias, pet field, association or notification change"
     raise NottyApiError(msg)
 
 
@@ -382,3 +388,30 @@ def _setting_restore(operation: str, changes: JsonObject, before: JsonObject) ->
         msg = "Original setting is outside the restorable write range"
         raise NottyApiError(msg)
     return operation, {field: value}
+
+
+def _dnd_restore(changes: JsonObject, before: JsonObject) -> tuple[str, JsonObject]:
+    require_fields(changes, {"switch_dnd"})
+    info = before.get("info")
+    state = plan_enabled(info.get("switch_dnd")) if isinstance(info, dict) else None
+    if state is None:
+        msg = "DND restoration requires a known original switch state"
+        raise NottyApiError(msg)
+    return SET_DND, {"switch_dnd": int(state)}
+
+
+def _association_restore(changes: JsonObject, before: JsonObject) -> tuple[str, JsonObject]:
+    require_fields(changes, set())
+    profile = before.get("profile")
+    rows = before.get("associations")
+    pet_id = identifier(profile.get("pet_id")) if isinstance(profile, dict) else None
+    matches = (
+        [row for row in rows if isinstance(row, dict) and row.get("pet_id") == pet_id] if isinstance(rows, list) else []
+    )
+    state = (
+        plan_enabled(matches[0].get("is_associated")) if len(matches) == 1 and isinstance(matches[0], dict) else None
+    )
+    if state is None:
+        msg = "Association restoration requires one known account pet and binding state"
+        raise NottyApiError(msg)
+    return ASSOCIATE if state else "disassociate", {}

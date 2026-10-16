@@ -7,6 +7,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
+import math
 from pathlib import Path
 import sys
 from typing import cast
@@ -77,6 +78,8 @@ LITTER_KIND = "litter_box"
 LITTER_WORD = "litter"
 PET_SOURCE = "pet"
 LITTER_ID = 2
+MAX_READBACK_ATTEMPTS = 10
+MAX_READBACK_INTERVAL = 10
 
 
 @dataclass
@@ -95,6 +98,8 @@ class Options:
     roundtrip: bool = False
     output: Path | None = None
     show_values: bool = False
+    readback_attempts: int = 4
+    readback_interval: float = 2.0
 
 
 def private_json(path: Path) -> JsonObject:
@@ -285,6 +290,13 @@ def validate_options(options: Options) -> None:
     Raises:
         ValueError: If modes conflict, paths exist or write evidence would be absent.
     """
+    if (
+        not 1 <= options.readback_attempts <= MAX_READBACK_ATTEMPTS
+        or not math.isfinite(options.readback_interval)
+        or not 0 <= options.readback_interval <= MAX_READBACK_INTERVAL
+    ):
+        msg = "Readback requires 1-10 attempts and a finite interval of 0-10 seconds"
+        raise ValueError(msg)
     if (options.session_file is None) == (options.from_file is None):
         msg = "Choose exactly one saved session or offline capture"
         raise ValueError(msg)
@@ -366,7 +378,7 @@ async def execute(
     try:
         await app_actions.apply(api, feature, target, operation, changes)
         result["write_status"] = "acknowledged_not_physically_verified"
-        data, after_errors = await collect(api, feature, target, options.memo_id)
+        data, after_errors = await read_until_applied(api, feature, target, request, options)
         result.update({"data": data, "errors": after_errors, "captured_at": datetime.now(UTC).isoformat()})
         write_json(phase_path(options.capture_raw, "after"), result)
     except NottyApiError:
@@ -406,6 +418,7 @@ async def run(feature: str, options: Options) -> JsonObject:
         "sources": list(data),
         "app_comparison": app_comparison(data, expected, show_values=options.show_values),
         "write_status": capture.get("write_status", "not_attempted"),
+        "operation": captured_operation(feature, capture),
         "api_write_readback": write_readback(feature, capture, data),
         "restore_status": capture.get("restore_status", "not_requested"),
         "remaining": "Phone-app observations, physical effects, schedule firing/DST and firmware completion are not proved by HTTP success. Login uses an existing session; fresh code login and expiry need a separate auth test.",
@@ -433,6 +446,8 @@ def main(feature: str) -> int:
         parser.add_argument(f"--{name}")
     for name in ("expect", "template", "capture-raw", "execute", "output"):
         parser.add_argument(f"--{name}", type=Path)
+    parser.add_argument("--readback-attempts", type=int, default=4)
+    parser.add_argument("--readback-interval", type=float, default=2.0)
     parser.add_argument("--roundtrip", action="store_true")
     parser.add_argument("--show-values", action="store_true", help="Print private API values locally")
     options = cast("Options", parser.parse_args())
@@ -485,7 +500,9 @@ async def _restore(
     fresh_devices = await api.user_devices(await api.pets()) if feature == ALIAS else []
     fresh_device = next((row for row in fresh_devices if str(row.get("user_device_id")) == target.box), target.device)
     restored_target = app_actions.Target(target.box, target.pet, fresh_device)
-    restored, errors = await collect(api, feature, restored_target, options.memo_id)
+    restored, errors = await read_until_applied(
+        api, feature, restored_target, {"operation": restore[0], "changes": restore[1]}, options
+    )
     restored_values = app_actions.restore_request(feature, restore[0], restore[1], restored)
     status = (
         "readback_matches_baseline" if not errors and restored_values == restore else "readback_mismatch_or_unavailable"
@@ -510,3 +527,32 @@ def write_readback(feature: str, capture: JsonObject, data: JsonObject) -> str:
     except NottyApiError:
         return "not_interpreted_verify_in_app"
     return "match" if actual == (operation, changes) else MISMATCH
+
+
+async def read_until_applied(
+    api: app_actions.ValidationApi, feature: str, target: app_actions.Target, request: JsonObject, options: Options
+) -> tuple[JsonObject, list[JsonValue]]:
+    """Poll GET readback after exactly one write, without repeating the mutation.
+
+    Returns:
+        The latest data and errors, keeping a final mismatch visible to callers.
+    """
+    for attempt in range(options.readback_attempts):
+        if attempt:
+            await asyncio.sleep(options.readback_interval)
+        data, errors = await collect(api, feature, target, options.memo_id)
+        status = write_readback(feature, {"request": request}, data)
+        if not errors and status != MISMATCH:
+            return data, errors
+    return data, errors
+
+
+def captured_operation(feature: str, capture: JsonObject) -> str | None:
+    """Expose only a recognized operation label, never private request values.
+
+    Returns:
+        The selected operation or None for reads/old/unrecognized captures.
+    """
+    request = capture.get("request")
+    value = request.get("operation") if isinstance(request, dict) else None
+    return value if isinstance(value, str) and value in app_actions.OPERATIONS.get(feature, set()) else None

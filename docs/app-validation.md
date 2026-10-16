@@ -110,11 +110,11 @@ uv run python scripts/validate_lock.py \
 ```
 
 `--roundtrip` restores and checks the original lock, mode/delay/language, alias,
-pet edited fields or notification category. It attempts restoration even after
+pet edited fields, a selected association or notification category. It attempts restoration even after
 an uncertain write failure. Inspect the restoration file and app before retrying
 an interrupted test. Immediate readback may lag; a mismatch needs investigation,
 not a blind repeat. Roundtrips are deliberately rejected for motor commands,
-reminder countdowns, schedules, timezone changes, associations, memos, firmware
+reminder countdowns, schedules, timezone changes, memos, firmware
 and deleted history because their original effect cannot be generically restored.
 Those operations can be selected explicitly without `--roundtrip`.
 
@@ -207,3 +207,66 @@ or history deletion was performed in this development run. Those scripts exist
 for explicit owner-selected tests with app/physical observations. No empty command
 was sent. Raw captures and editable app-value templates remain private under
 `probe-output/app-validation-20261017/`; they are not published in GitHub.
+
+## Follow-up verification, 17 October 2026
+
+The child-lock request now follows the exact APK contract: integer
+`user_device_id`, integer `switch`, and no legacy `device_id` field. A live
+transition and restoration both matched API readback after two seconds. This
+resolves the earlier unchanged-immediate-readback result. The scripts now poll
+GET readback after one mutation; they never resend a write while waiting.
+Use `--readback-attempts 4 --readback-interval 2` to control the bounded wait.
+Restoration also waits for matching readback. A final mismatch remains a failure.
+
+DND off/on, English/Icons and Auto/Soft stool changes were also observed in live
+API readback, then restored. Raw DND boundaries and LED were unchanged throughout.
+DND switch-only and selected known-association roundtrips are now supported; clock edits still require explicit
+before/after app verification. Actual scheduled firing and DST remain separate
+checks, not implied by matching JSON clocks. The device currently reports
+`auto_delay: 0`, outside the app-traced 1–15 minute write options; an automatic
+roundtrip must not alter it because the original value cannot be safely restored
+through that established contract.
+
+Inspect coverage of every in-scope issue without contacting NOTTY:
+
+```sh
+uv run python scripts/validation_status.py \
+  --evidence-dir /absolute/path/to/probe-output
+```
+
+This lists script coverage, observed API/app comparisons, failures and restoration
+results. It does not automatically close an issue or treat a script's existence
+as successful validation. Older failure reports can coexist with newer passes.
+Feeders/water (#27/#28) remain deferred. See [issue coverage](validation-coverage.md).
+
+Monitor an owner-selected firmware update without starting another installation:
+
+```sh
+uv run python scripts/monitor_firmware.py \
+  --session-file probe-output/session.private.json \
+  --device-id YOUR_PHYSICAL_BOX_ID \
+  --output-dir probe-output/firmware-observation \
+  --samples 12 --interval 10
+```
+
+Each sample and the selected target are saved privately. To continue after
+restarting the script, pass `--target-version EXACT_PREVIOUS_TARGET` and a new
+output directory. Only matching installed-version readback confirms completion;
+a success status alone does not. A failure from a different offered target is
+not attributed to the selected update. No firmware is installed by this monitor,
+no percentage is inferred, and this does not add restart persistence or realtime
+firmware-event subscriptions to HA itself. On the owner's current device there
+is no offered firmware update, so installation/failure lifecycle validation needs
+a future offer.
+
+The follow-up schedule test found and fixed a real edit guard error: litter-box
+plans report `plan_type_id: 2`, not the earlier assumed 1. After correction,
+a temporary plan passed create, edit, disable, enable and delete. Scheduled mode
+readback also matched, then the original mode and all original plan records
+were restored. A selected pet association was toggled and restored with matching
+readback. Actual scheduled physical firing still needs observation; these
+roundtrips do not assert that it occurred.
+
+Completed implementation tickets link to [#42](https://github.com/Repsay/notty/issues/42)
+for their remaining external acceptance checks. #21, #22 and #41 retain the
+specific timezone, firmware and measured-weight work. Emptying is excluded.

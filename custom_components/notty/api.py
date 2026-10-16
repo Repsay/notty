@@ -16,6 +16,7 @@ ACTION_ONE_KEY = "one_key"
 ACTION_SET_AUTO_DELAY = "set_auto_delay"
 ACTION_SET_ALIAS = "set_alias"
 ACTION_SET_LANGUAGE = "set_language"
+ACTION_SET_KEY = "set_key"
 MODE_SCHEDULED = 2
 MIN_ALIAS_UNITS = 2
 MAX_ALIAS_UNITS = 8
@@ -34,6 +35,7 @@ PLAN_FIELDS = {
 PLAN_ACTIONS = set(PLAN_FIELDS)
 PLAN_TIME_RE = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]")
 MAX_LITTER_PLANS = 10
+LITTER_PLAN_TYPE_ID = 2
 
 
 ACTION_SET_MODE = "set_mode"
@@ -132,6 +134,24 @@ REMINDER_ENABLED_FIELDS = {
 LIST_KEYS = ("list", "devices", "rows", "items", "data")
 LITTER_BIND_KEYS = ("bind_litter_box", "litter_box", "litter_box_id", "litter_box_user_device_id", "lb_user_device_id")
 _LOGGER = logging.getLogger(__name__)
+
+
+def child_lock_payload(device_id: str, data: JsonObject) -> JsonObject:
+    """Construct the app's exact integer child-lock fields.
+
+    Returns:
+        Only integer user_device_id and switch; no legacy device_id alias.
+
+    Raises:
+        NottyApiError: If identity, fields or switch encoding is invalid.
+    """
+    if not device_id.isascii() or not device_id.isdecimal() or int(device_id) <= 0:
+        msg = "Child lock requires a positive numeric physical device ID"
+        raise NottyApiError(msg)
+    if set(data) != {"switch"} or type(data.get("switch")) is not int or data["switch"] not in {0, 1}:
+        msg = "Child lock accepts only integer switch 0 or 1"
+        raise NottyApiError(msg)
+    return {"user_device_id": int(device_id), "switch": data["switch"]}
 
 
 def matches_value(value: object, choices: tuple[object, ...]) -> bool:
@@ -248,11 +268,11 @@ def _plan_time_fields(data: JsonObject, current: JsonObject) -> JsonObject:
     if not isinstance(clock, str) or not PLAN_TIME_RE.fullmatch(clock):
         msg = "Schedule time must be a NOTTY clock value in HH:MM format"
         raise NottyApiError(msg)
-    for field in ("quantity", "plan_type_id"):
-        value = current.get(field, 1)
-        if type(value) is not int or value != 1:
-            msg = "Cannot edit an unsupported schedule quantity or recurrence type"
-            raise NottyApiError(msg)
+    quantity = current.get("quantity", 1)
+    plan_type = current.get("plan_type_id", LITTER_PLAN_TYPE_ID)
+    if type(quantity) is not int or quantity != 1 or type(plan_type) is not int or plan_type != LITTER_PLAN_TYPE_ID:
+        msg = "Cannot edit an unsupported schedule quantity or plan type"
+        raise NottyApiError(msg)
     return {"time": clock, "quantity": 1}
 
 
@@ -1332,6 +1352,8 @@ class NottyApi(NottyTimezoneApi):
         return await self.request("POST", path, data=payload)
 
     async def _setting_payload(self, device_id: str, action: str, data: JsonObject) -> JsonObject | None:
+        if action == ACTION_SET_KEY:
+            return child_lock_payload(device_id, data)
         settings = reminder_payload(action, data) if action in REMINDER_CYCLE_FIELDS else data
         if action in REMINDER_RESET_ACTIONS | REMINDER_INTERVAL_ACTIONS and not await self._validate_reminder_edit(
             device_id, action, settings
