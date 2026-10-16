@@ -41,6 +41,11 @@
       "open_garbagebag_remind": {
         "name": "Herinnering afvalzak vervangen"
       }
+    },
+    "text": {
+      "cloud_alias": {
+        "name": "Cloudnaam"
+      }
     }
   }
 }

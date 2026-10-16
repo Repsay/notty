@@ -14,3 +14,5 @@ Start with read-only captures. This checklist is for the device owner; the autom
 9. Turn real responses into small synthetic test fixtures with invented IDs, names and timestamps. Keep tokens, account details, images, and raw captures out of Git/issues.
 
 Document the Home Assistant version, device model/firmware, account region, login method and each verified feature before describing a release as production ready.
+
+Cloud name (#20): use one physical litter box and a short test name. Compare NOTTY app and refreshed HA cloud-name readback, then restore the original name. Check the HA user display-name override and all entity IDs remain unchanged. Do not treat HTTP success without cloud readback as a confirmed rename. No live rename was performed during implementation.

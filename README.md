@@ -37,6 +37,7 @@ Only fields returned by the account/device are exposed. The coordinator polls ev
 | Switches | Child lock, Do Not Disturb, litter-renewal reminder and trash-bag reminder |
 | Selects | Cleaning mode, automatic cleaning delay, known screen languages and reminder intervals |
 | Time | Do Not Disturb start/end |
+| Text | NOTTY cloud device name, independent of your HA display-name override |
 | Number | Pet weight, with existing litter-box binding preserved |
 
 Pet records become separate devices linked to the litter box. They do not receive litter-box command buttons. Known sensor fields use explicit units and device classes; unknown scalar fields remain ordinary sensors. Times and schedules are not guessed to be durations, and the weight-unit enum is not a weight measurement.
@@ -110,3 +111,29 @@ See [development history](docs/development-history.md) and the [live validation 
 ## License
 
 MIT. NOTTY names and trademarks belong to their respective owners.
+
+## NOTTY cloud name
+
+The **Cloud name** configuration text entity changes the physical litter box's
+name in the NOTTY account. This is separate from renaming a device in Home
+Assistant. Change it on the device page or call `text.set_value` with the text
+entity ID and the new `value`.
+
+New names must be nonblank printable text using **2–8 UTF-16 units** (most emoji
+use two units). This follows the app's conservative 2–8 guidance; the inspected
+save method explicitly checks only the lower bound. Accepted text is sent exactly
+as entered, without trimming or truncation. Existing longer cloud names remain
+visible and can be replaced with a name inside the write limits. Home Assistant
+counts code points in its text bounds, so the integration also checks UTF-16
+length before sending a request.
+
+After a successful request, the integration refreshes discovery and uses the
+reported cloud name. An unchanged or rejected readback is never replaced with an
+optimistic value. The integration-provided device registry name follows cloud
+readback; your separate Home Assistant display-name override (`name_by_user`),
+physical device ID, entity unique IDs and existing entity IDs are preserved.
+Polling also reflects renames made in the official app. Pet names use a different
+API and have no cloud-device-name control.
+
+The contract is traced from the APK and covered by synthetic tests, but a live
+rename has not been validated in this development session. See [alias evidence](docs/apk-cloud-alias.md).

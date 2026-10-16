@@ -63,6 +63,11 @@
       "weight": {
         "default": "mdi:scale"
       }
+    },
+    "text": {
+      "cloud_alias": {
+        "default": "mdi:form-textbox"
+      }
     }
   },
   "services": {

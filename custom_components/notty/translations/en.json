@@ -98,6 +98,11 @@
       "weight": {
         "name": "Weight"
       }
+    },
+    "text": {
+      "cloud_alias": {
+        "name": "Cloud name"
+      }
     }
   },
   "services": {
