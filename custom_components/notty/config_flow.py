@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import NottyApi, NottyApiError
-from .const import (
+from custom_components.notty.api import JsonObject, NottyApi, NottyApiError
+from custom_components.notty.const import (
     CONF_ACCESS_TOKEN,
     CONF_EMAIL,
     CONF_FIREBASE_API_KEY,
@@ -17,23 +17,43 @@ from .const import (
     DEFAULT_REGION_CODE,
     DOMAIN,
 )
+from custom_components.notty.validation import vol
+
+STEP_CODE = "code"
+
+# Home Assistant ConfigFlowResult embeds Any in framework-owned fields.
+# Keep strict signatures and explicit-Any checks; allow that result boundary.
+# mypy: disallow-any-expr=False
 
 
 class NottyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 2
+    _last_error: str = ""
 
-    async def async_step_reauth(self, entry_data):
-        """Allow expired sessions, including code-only sessions, to sign in again."""
+    async def async_step_reauth(self, entry_data: JsonObject) -> ConfigFlowResult:
+        """Allow expired sessions, including code-only sessions, to sign in again.
+
+        Returns:
+            The computed result.
+        """
+        del entry_data
         return await self.async_step_user()
 
-    async def async_step_user(self, user_input=None):
-        errors = {}
+    async def async_step_user(self, user_input: JsonObject | None = None) -> ConfigFlowResult:
+        """Async step user.
+
+        Returns:
+            ConfigFlowResult: The resulting async step user.
+        """
+        errors: dict[str, str] = {}
         if user_input:
             password = user_input.get(CONF_PASSWORD) or None
             if not password:
-                self._email = user_input[CONF_EMAIL]
-                self._region_code = user_input.get(CONF_REGION_CODE, DEFAULT_REGION_CODE)
-                self._firebase_api_key = user_input.get(CONF_FIREBASE_API_KEY) or None
+                self._email = str(user_input[CONF_EMAIL])
+                self._region_code = str(user_input.get(CONF_REGION_CODE) or DEFAULT_REGION_CODE)
+                self._firebase_api_key = (
+                    str(user_input[CONF_FIREBASE_API_KEY]) if user_input.get(CONF_FIREBASE_API_KEY) else None
+                )
                 api = NottyApi(
                     async_get_clientsession(self.hass),
                     email=self._email,
@@ -49,61 +69,56 @@ class NottyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return await self.async_step_code()
 
             if not errors:
-                return await self._create_entry_from_login(
-                    {
-                        CONF_EMAIL: user_input[CONF_EMAIL],
-                        CONF_PASSWORD: password,
-                        CONF_REGION_CODE: user_input.get(CONF_REGION_CODE, DEFAULT_REGION_CODE),
-                        CONF_FIREBASE_API_KEY: user_input.get(CONF_FIREBASE_API_KEY) or None,
-                    }
-                )
+                return await self._create_entry_from_login({
+                    CONF_EMAIL: user_input[CONF_EMAIL],
+                    CONF_PASSWORD: password,
+                    CONF_REGION_CODE: user_input.get(CONF_REGION_CODE, DEFAULT_REGION_CODE),
+                    CONF_FIREBASE_API_KEY: user_input.get(CONF_FIREBASE_API_KEY) or None,
+                })
 
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_EMAIL): str,
-                vol.Optional(CONF_PASSWORD): str,
-                vol.Optional(CONF_REGION_CODE, default=DEFAULT_REGION_CODE): str,
-                vol.Optional(CONF_FIREBASE_API_KEY): str,
-            }
-        )
+        schema = vol.Schema({
+            vol.Required(CONF_EMAIL): str,
+            vol.Optional(CONF_PASSWORD): str,
+            vol.Optional(CONF_REGION_CODE, default=DEFAULT_REGION_CODE): str,
+            vol.Optional(CONF_FIREBASE_API_KEY): str,
+        })
         return self.async_show_form(
-            step_id="user",
-            data_schema=schema,
-            errors=errors,
-            description_placeholders={"error": getattr(self, "_last_error", "")},
+            step_id="user", data_schema=schema, errors=errors, description_placeholders={"error": self._last_error}
         )
 
-    async def async_step_code(self, user_input=None):
-        errors = {}
+    async def async_step_code(self, user_input: JsonObject | None = None) -> ConfigFlowResult:
+        """Async step code.
+
+        Returns:
+            ConfigFlowResult: The resulting async step code.
+        """
+        errors: dict[str, str] = {}
         if user_input:
-            return await self._create_entry_from_login(
-                {
-                    CONF_EMAIL: self._email,
-                    CONF_VERIFICATION_CODE: user_input[CONF_VERIFICATION_CODE],
-                    CONF_REGION_CODE: self._region_code,
-                    CONF_FIREBASE_API_KEY: self._firebase_api_key,
-                }
-            )
+            return await self._create_entry_from_login({
+                CONF_EMAIL: self._email,
+                CONF_VERIFICATION_CODE: user_input[CONF_VERIFICATION_CODE],
+                CONF_REGION_CODE: self._region_code,
+                CONF_FIREBASE_API_KEY: self._firebase_api_key,
+            })
 
         return self.async_show_form(
             step_id="code",
             data_schema=vol.Schema({vol.Required(CONF_VERIFICATION_CODE): str}),
             errors=errors,
-            description_placeholders={
-                "email": self._email,
-                "error": getattr(self, "_last_error", ""),
-            },
+            description_placeholders={"email": self._email, "error": self._last_error},
         )
 
-    async def _create_entry_from_login(self, user_input):
-        errors = {}
+    async def _create_entry_from_login(self, user_input: JsonObject) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         api = NottyApi(
             async_get_clientsession(self.hass),
-            email=user_input[CONF_EMAIL],
-            password=user_input.get(CONF_PASSWORD),
-            verification_code=user_input.get(CONF_VERIFICATION_CODE),
-            firebase_api_key=user_input.get(CONF_FIREBASE_API_KEY) or None,
-            region_code=user_input.get(CONF_REGION_CODE, DEFAULT_REGION_CODE),
+            email=str(user_input[CONF_EMAIL]),
+            password=str(user_input[CONF_PASSWORD]) if user_input.get(CONF_PASSWORD) else None,
+            verification_code=str(user_input[CONF_VERIFICATION_CODE])
+            if user_input.get(CONF_VERIFICATION_CODE)
+            else None,
+            firebase_api_key=str(user_input[CONF_FIREBASE_API_KEY]) if user_input.get(CONF_FIREBASE_API_KEY) else None,
+            region_code=str(user_input.get(CONF_REGION_CODE) or DEFAULT_REGION_CODE),
         )
         try:
             await api.login()
@@ -113,32 +128,27 @@ class NottyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id = "code" if user_input.get(CONF_VERIFICATION_CODE) else "user"
             schema = (
                 vol.Schema({vol.Required(CONF_VERIFICATION_CODE): str})
-                if step_id == "code"
-                else vol.Schema(
-                    {
-                        vol.Required(CONF_EMAIL): str,
-                        vol.Optional(CONF_PASSWORD): str,
-                        vol.Optional(CONF_REGION_CODE, default=DEFAULT_REGION_CODE): str,
-                        vol.Optional(CONF_FIREBASE_API_KEY): str,
-                    }
-                )
+                if step_id == STEP_CODE
+                else vol.Schema({
+                    vol.Required(CONF_EMAIL): str,
+                    vol.Optional(CONF_PASSWORD): str,
+                    vol.Optional(CONF_REGION_CODE, default=DEFAULT_REGION_CODE): str,
+                    vol.Optional(CONF_FIREBASE_API_KEY): str,
+                })
             )
             return self.async_show_form(
                 step_id=step_id,
                 data_schema=schema,
                 errors=errors,
-                description_placeholders={
-                    "email": user_input[CONF_EMAIL],
-                    "error": getattr(self, "_last_error", ""),
-                },
+                description_placeholders={"email": str(user_input[CONF_EMAIL]), "error": self._last_error},
             )
         else:
-            await self.async_set_unique_id(user_input[CONF_EMAIL].strip().lower())
+            await self.async_set_unique_id(str(user_input[CONF_EMAIL]).strip().lower())
             if self.source == config_entries.SOURCE_REAUTH:
                 self._abort_if_unique_id_mismatch()
             else:
                 self._abort_if_unique_id_configured()
-            data = {k: v for k, v in user_input.items() if v and k != CONF_VERIFICATION_CODE}
+            data: JsonObject = {k: v for k, v in user_input.items() if v and k != CONF_VERIFICATION_CODE}
             data[CONF_ACCESS_TOKEN] = api.token
             if api.user_id:
                 data[CONF_USER_ID] = api.user_id
@@ -148,7 +158,4 @@ class NottyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Replace old credentials, so a password-to-code switch does not
                 # retain an invalid password or old tokens.
                 return self.async_update_reload_and_abort(self._get_reauth_entry(), data=data)
-            return self.async_create_entry(
-                title=user_input[CONF_EMAIL],
-                data=data,
-            )
+            return self.async_create_entry(title=str(user_input[CONF_EMAIL]), data=data)

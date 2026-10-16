@@ -46,6 +46,9 @@
       },
       "garbage_bag_cycle_time": {
         "default": "mdi:delete-clock"
+      },
+      "auto_delay": {
+        "default": "mdi:timer-cog-outline"
       }
     },
     "time": {

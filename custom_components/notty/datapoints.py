@@ -1,12 +1,20 @@
 """Value-free datapoint inventories shared by diagnostics and developer tools."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from custom_components.notty.api import JsonValue
 
 
-def inventory(value: Any, path: str = "$", *, _fields: dict | None = None) -> dict:
+def inventory(value: JsonValue, path: str = "$", *, _fields: dict[str, set[str]] | None = None) -> dict[str, list[str]]:
     """Describe JSON paths and observed types, without retaining response values.
 
     Array indices are combined so snapshots can be compared across polling runs.
+
+    Returns:
+        The computed result.
     """
     fields = {} if _fields is None else _fields
     kind = (

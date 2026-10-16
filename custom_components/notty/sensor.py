@@ -4,9 +4,20 @@ from datetime import datetime
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import UnitOfMass, UnitOfTime
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.typing import StateType
 
-from .binary_sensor import BINARY_KEYS, looks_boolean_key
-from .entity import NottyEntity, merged_device_data, title_from_key, value_from_block
+from custom_components.notty.api import JsonValue, matches_value
+from custom_components.notty.binary_sensor import BINARY_KEYS, looks_boolean_key
+from custom_components.notty.coordinator import NottyCoordinator
+from custom_components.notty.entity import NottyEntity, merged_device_data, title_from_key, value_from_block
+from custom_components.notty.models import DeviceBlock, DeviceData, NottyConfigEntry
+
+DECIMAL_SEPARATOR = "."
+FIELD_SEX = "sex"
+DATETIME_FIELD_FRAGMENT = "datetime"
+FIELD_EVENTS = "events"
 
 SKIP_KEYS = {
     "id",
@@ -64,12 +75,7 @@ NON_LITTER_PREFIXES = (
     "feeder_",
 )
 
-WEIGHT_KEYS = {
-    "today_weight",
-    "yesterday_weight",
-    "total_weight",
-    "weight",
-}
+WEIGHT_KEYS = {"today_weight", "yesterday_weight", "total_weight", "weight"}
 TIMESTAMP_KEYS = {
     "latest_message_date_created",
     "messages_date_created",
@@ -148,24 +154,26 @@ ENUM_OPTIONS = {
     "language": tuple(ENUM_LABELS["language"].values()),
     "weight_unit": tuple(ENUM_LABELS["weight_unit"].values()),
     "sex": tuple(ENUM_LABELS["sex"].values()),
-    "latest_event_event_type_id": tuple(f"event_type_{value}" for value in range(0, 30)),
-    "upgrade_task_status": tuple(f"task_status_{value}" for value in range(0, 10)),
+    "latest_event_event_type_id": tuple(f"event_type_{value}" for value in range(30)),
+    "upgrade_task_status": tuple(f"task_status_{value}" for value in range(10)),
 }
-ENUM_VALUE_PREFIX = {
-    "lb_mode": "mode",
-    "lb_status": "status",
-}
+ENUM_VALUE_PREFIX = {"lb_mode": "mode", "lb_status": "status"}
 
 
-def _is_scalar(value) -> bool:
+def _is_scalar(value: JsonValue) -> bool:
     return value is not None and not isinstance(value, (dict, list, set, tuple))
 
 
-def _valid_sensor_value(value) -> bool:
+def _valid_sensor_value(value: JsonValue) -> bool:
     return not isinstance(value, str) or len(value) <= MAX_STATE_LENGTH
 
 
-def _sensor_keys(block: dict) -> list[str]:
+def sensor_keys(block: DeviceBlock) -> list[str]:
+    """Sensor keys.
+
+    Returns:
+        list[str]: The resulting sensor keys.
+    """
     merged = merged_device_data(block)
     keys = []
     for key, value in merged.items():
@@ -175,16 +183,15 @@ def _sensor_keys(block: dict) -> list[str]:
             or key.endswith("_str")
             or key.startswith(NON_LITTER_PREFIXES)
             or isinstance(value, bool)
-            or not _is_scalar(value)
-            or not _valid_sensor_value(value)
-            or looks_boolean_key(key, value)
         ):
+            continue
+        if not _is_scalar(value) or not _valid_sensor_value(value) or looks_boolean_key(key, value):
             continue
         keys.append(key)
     return sorted(keys)
 
 
-def _number_or_original(value):
+def _number_or_original(value: JsonValue) -> JsonValue:
     if isinstance(value, bool):
         return value
     if isinstance(value, int | float):
@@ -194,17 +201,17 @@ def _number_or_original(value):
         if not stripped:
             return None
         try:
-            return float(stripped) if "." in stripped else int(stripped)
+            return float(stripped) if DECIMAL_SEPARATOR in stripped else int(stripped)
         except ValueError:
             return value
     return value
 
 
-def _is_numeric_value(value) -> bool:
+def _is_numeric_value(value: JsonValue) -> bool:
     return isinstance(_number_or_original(value), (int, float)) and not isinstance(value, bool)
 
 
-def _parse_timestamp_value(value):
+def _parse_timestamp_value(value: object) -> datetime | None:
     if isinstance(value, datetime):
         return value
     if not isinstance(value, str):
@@ -219,22 +226,33 @@ def _parse_timestamp_value(value):
     return parsed
 
 
-def _enum_value(key: str, value) -> str | None:
-    if value in (None, ""):
+def _enum_value(key: str, value: JsonValue) -> str | None:
+    if matches_value(value, (None, "")):
         return None
     if isinstance(value, str):
         stripped = value.strip()
         if stripped.isdigit():
             value = int(stripped)
-    if key == "sex":
-        return ENUM_LABELS["sex"].get(value, f"Sex {value}")
+    if key == FIELD_SEX:
+        return ENUM_LABELS["sex"].get(value, f"Sex {value}") if isinstance(value, int) else f"Sex {value}"
     if key in ENUM_LABELS:
-        return ENUM_LABELS[key].get(value, f"{title_from_key(key)} {value}")
+        return (
+            ENUM_LABELS[key].get(value, f"{title_from_key(key)} {value}")
+            if isinstance(value, int)
+            else f"{title_from_key(key)} {value}"
+        )
     prefix = ENUM_VALUE_PREFIX.get(key, key)
     return f"{prefix}_{value}"
 
 
-def _sensor_metadata(key: str, raw_value):
+def sensor_metadata(
+    key: str, raw_value: JsonValue
+) -> tuple[SensorDeviceClass | None, str | None, SensorStateClass | None]:
+    """Sensor metadata.
+
+    Returns:
+        tuple[SensorDeviceClass | None, str | None, SensorStateClass | None]: The resulting sensor metadata.
+    """
     if key in TIMESTAMP_KEYS:
         timestamp_value = _parse_timestamp_value(raw_value)
         if timestamp_value is not None:
@@ -250,23 +268,25 @@ def _sensor_metadata(key: str, raw_value):
     return None, None, None
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
+async def async_setup_entry(  # ruff: ignore[unused-async] -- Home Assistant requires an async callback.
+    _hass: HomeAssistant, entry: NottyConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
+) -> None:
+    """Async setup entry."""
     coordinator = entry.runtime_data
-    entities = []
+    entities: list[NottySensor] = []
     for device_id, block in coordinator.data.items():
-        for key in _sensor_keys(block):
-            entities.append(NottySensor(coordinator, device_id, block["device"], key))
+        entities.extend(NottySensor(coordinator, device_id, block["device"], key) for key in sensor_keys(block))
     async_add_entities(entities)
 
 
 class NottySensor(NottyEntity, SensorEntity):
-    def __init__(self, coordinator, device_id, device, key):
+    def __init__(self, coordinator: NottyCoordinator, device_id: str, device: DeviceData, key: str) -> None:
         super().__init__(coordinator, device_id, device)
         self.key = key
         self._attr_unique_id = f"{device_id}_{key}"
         self._attr_name = title_from_key(key)
         raw_value = value_from_block(self.block, self.key)
-        device_class, unit, state_class = _sensor_metadata(key, raw_value)
+        device_class, unit, state_class = sensor_metadata(key, raw_value)
         if device_class is not None:
             self._attr_device_class = device_class
         if unit is not None:
@@ -275,39 +295,55 @@ class NottySensor(NottyEntity, SensorEntity):
             self._attr_state_class = state_class
 
     @property
-    def native_value(self):
+    def native_value(self) -> StateType | datetime:
+        """Native value.
+
+        Returns:
+            StateType | datetime: The resulting native value.
+        """
         raw_value = value_from_block(self.block, self.key)
         timestamp_value = _parse_timestamp_value(raw_value)
         if timestamp_value is not None and (
-            "datetime" in self.key
-            or self.key in {"latest_message_date_created", "messages_date_created"}
+            DATETIME_FIELD_FRAGMENT in self.key or self.key in {"latest_message_date_created", "messages_date_created"}
         ):
             return timestamp_value
         if self.key in ENUM_OPTIONS:
             return _enum_value(self.key, raw_value)
-        return _number_or_original(raw_value)
+        value = _number_or_original(raw_value)
+        return value if isinstance(value, (str, int, float)) else None
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> DeviceData | None:
+        """Extra state attributes.
+
+        Returns:
+            DeviceData | None: The resulting extra state attributes.
+        """
         attributes = {}
         if self.key in ENUM_OPTIONS:
             attributes["raw_value"] = value_from_block(self.block, self.key)
         source_key = RELATED_ATTRIBUTE_KEYS.get(self.key)
         if source_key:
-            if source_key == "events":
+            if source_key == FIELD_EVENTS:
                 value = self.block.get("info", {}).get("events")
             else:
-                value = self.block.get("info", {}).get("_notty_related", {}).get(source_key)
+                related = self.block["info"].get("_notty_related")
+                value = related.get(source_key) if isinstance(related, dict) else None
             if value:
                 attributes[source_key] = value
         return attributes or None
 
     @property
-    def options(self):
+    def options(self) -> list[str] | None:
+        """Options.
+
+        Returns:
+            list[str] | None: The resulting options.
+        """
         if self.key not in ENUM_OPTIONS:
             return None
         options = list(ENUM_OPTIONS.get(self.key, ()))
         current = self.native_value
-        if current and current not in options:
+        if isinstance(current, str) and current and current not in options:
             options.append(current)
         return options or None

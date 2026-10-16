@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,28 +12,42 @@ from custom_components.notty.diagnostics import async_get_config_entry_diagnosti
 from scripts import probe_datapoints as probe
 from scripts.compare_datapoints import compare
 
-
-def probe_args(**kwargs):
-    return SimpleNamespace(
-        **{
-            "from_file": None,
-            "output": None,
-            "capture_raw": None,
-            "session_file": None,
-            "device_id": [],
-            **kwargs,
-        }
-    )
+PRIVATE_SESSION_FILE_MODE = 0o600
+EXPECTED_SAVED_CREDENTIAL = "saved-token"
+EXPECTED_TEST_USER = "test-user"
+EXPECTED_PRIVATE_CREDENTIAL = "secret-token"
+EXPECTED_PRIVATE_BOX_ID = "private-box-id"
+EXPECTED_PRIVATE_PET_ID = "private-pet-id"
+EXPECTED_PRIVATE_ACCOUNT = "secret-account"
+PRIVATE_CAPTURE_FILE_MODE = 0o600
 
 
-async def test_session_saved_without_one_time_code_or_password(tmp_path, monkeypatch):
+def probe_args(**kwargs: object) -> SimpleNamespace:
+    """Probe args.
+
+    Returns:
+        SimpleNamespace: The resulting probe args.
+    """
+    return SimpleNamespace(**{
+        "from_file": None,
+        "output": None,
+        "capture_raw": None,
+        "session_file": None,
+        "device_id": [],
+        **kwargs,
+    })
+
+
+async def test_session_saved_without_one_time_code_or_password(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify session saved without one time code or password."""
     monkeypatch.setenv("NOTTY_EMAIL", "test@example.test")
     monkeypatch.setenv("NOTTY_VERIFICATION_CODE", "one-time-secret")
     monkeypatch.setenv("NOTTY_PASSWORD", "private-password")
     api = MagicMock(token=None, user_id="test-user", email="test@example.test", region_code="NL")
 
-    async def login():
-        api.token = "test-token"
+    def login() -> None:
+        """Login."""
+        api.token = SAMPLE_SESSION
 
     api.login = AsyncMock(side_effect=login)
     session_file = tmp_path / "session.private.json"
@@ -47,67 +64,66 @@ async def test_session_saved_without_one_time_code_or_password(tmp_path, monkeyp
         "email": "test@example.test",
         "region_code": "NL",
     }
-    assert session_file.stat().st_mode & 0o777 == 0o600
+    assert session_file.stat().st_mode & 0o777 == PRIVATE_SESSION_FILE_MODE
     api.login.assert_awaited_once()
 
 
-async def test_saved_session_reused_without_login(tmp_path, monkeypatch):
+async def test_saved_session_reused_without_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify saved session reused without login."""
     for key in ("NOTTY_EMAIL", "NOTTY_ACCESS_TOKEN", "NOTTY_USER_ID"):
         monkeypatch.delenv(key, raising=False)
     session_file = tmp_path / "session.private.json"
     probe.write_json(
         session_file,
-        {
-            "email": "test@example.test",
-            "access_token": "saved-token",
-            "user_id": "test-user",
-            "region_code": "NL",
-        },
+        {"email": "test@example.test", "access_token": "saved-token", "user_id": "test-user", "region_code": "NL"},
     )
-    api = MagicMock(token="saved-token")
+    api = MagicMock(token=EXPECTED_SAVED_CREDENTIAL)
     api.login = AsyncMock()
     with (
         patch.object(probe.load_api, "NottyApi", return_value=api) as cls,
         patch.object(probe, "collect", AsyncMock(return_value={"responses": {}, "errors": []})),
     ):
         assert await probe.run(probe_args(session_file=session_file)) == 0
-    assert cls.call_args.kwargs["token"] == "saved-token"
-    assert cls.call_args.kwargs["user_id"] == "test-user"
+    assert cls.call_args.kwargs["token"] == EXPECTED_SAVED_CREDENTIAL
+    assert cls.call_args.kwargs["user_id"] == EXPECTED_TEST_USER
     api.login.assert_not_awaited()
 
 
-async def test_reject_existing_output_before_consuming_login_code(tmp_path):
+async def test_reject_existing_output_before_consuming_login_code(tmp_path: Path) -> None:
+    """Verify reject existing output before consuming login code."""
     output = tmp_path / "report.json"
     output.write_text("existing")
-    with patch.object(probe.load_api, "NottyApi") as cls:
-        with pytest.raises(FileExistsError):
-            await probe.run(probe_args(output=output))
+    with patch.object(probe.load_api, "NottyApi") as cls, pytest.raises(FileExistsError):
+        await probe.run(probe_args(output=output))
     cls.assert_not_called()
 
 
-async def test_session_must_use_ignored_private_suffix(tmp_path):
+async def test_session_must_use_ignored_private_suffix(tmp_path: Path) -> None:
+    """Verify session must use ignored private suffix."""
     with pytest.raises(ValueError, match="private"):
         await probe.run(probe_args(session_file=tmp_path / "session.json"))
 
 
-def test_inventory_omits_all_values_and_merges_array_types():
+def test_inventory_omits_all_values_and_merges_array_types() -> None:
+    """Verify inventory omits all values and merges array types."""
     fields = inventory({"token": "secret-token", "weight": [4, 4.2, None], "online": True})
-    assert "secret-token" not in json.dumps(fields)
+    assert EXPECTED_PRIVATE_CREDENTIAL not in json.dumps(fields)
     assert fields["$.weight[]"] == ["integer", "null", "number"]
     assert fields["$.online"] == ["boolean"]
 
 
-def test_compare_detects_new_removed_and_changed_types():
+def test_compare_detects_new_removed_and_changed_types() -> None:
+    """Verify compare detects new removed and changed types."""
     result = compare(
-        {"datapoints": {"a": ["integer"], "b": ["string"]}},
-        {"datapoints": {"a": ["string"], "c": ["boolean"]}},
+        {"datapoints": {"a": ["integer"], "b": ["string"]}}, {"datapoints": {"a": ["string"], "c": ["boolean"]}}
     )
     assert list(result["added"]) == ["c"]
     assert list(result["removed"]) == ["b"]
     assert list(result["type_changed"]) == ["a"]
 
 
-async def test_probe_only_uses_read_methods():
+async def test_probe_only_uses_read_methods() -> None:
+    """Verify probe only uses read methods."""
     api = AsyncMock()
     api.devices.return_value = [
         {"user_device_id": "private-box-id", "device_type": "litter_box"},
@@ -128,11 +144,11 @@ async def test_probe_only_uses_read_methods():
         "pet_related_info",
     }
     result = probe.report(capture)
-    assert "private-box-id" not in json.dumps(result)
-    assert "private-pet-id" not in json.dumps(result)
+    assert EXPECTED_PRIVATE_BOX_ID not in json.dumps(result)
+    assert EXPECTED_PRIVATE_PET_ID not in json.dumps(result)
 
 
-async def test_probe_recognizes_live_device_name_shape():
+async def test_probe_recognizes_live_device_name_shape() -> None:
     """Physical devices omit device_type/product_name/model in real responses."""
     api = AsyncMock()
     api.devices.return_value = [
@@ -154,26 +170,27 @@ async def test_probe_recognizes_live_device_name_shape():
     assert capture["responses"]["litter_boxes[0].info"] == {"status_id": 1}
 
 
-async def test_probe_hides_error_bodies_and_reports_partial_failure():
+async def test_probe_hides_error_bodies_and_reports_partial_failure() -> None:
+    """Verify probe hides error bodies and reports partial failure."""
     api = AsyncMock()
     api.devices.side_effect = probe.load_api.NottyApiError("secret-account")
     api.pets.return_value = []
     capture = await probe.collect(api, [])
     assert capture["errors"] == [{"endpoint": "devices", "error": "request_failed"}]
-    assert "secret-account" not in json.dumps(probe.report(capture))
+    assert EXPECTED_PRIVATE_ACCOUNT not in json.dumps(probe.report(capture))
 
 
-def test_capture_private_permissions_and_no_overwrite(tmp_path):
+def test_capture_private_permissions_and_no_overwrite(tmp_path: Path) -> None:
+    """Verify capture private permissions and no overwrite."""
     path = tmp_path / "test.private.json"
     probe.write_json(path, {"responses": {}})
-    assert path.stat().st_mode & 0o777 == 0o600
+    assert path.stat().st_mode & 0o777 == PRIVATE_CAPTURE_FILE_MODE
     with pytest.raises(FileExistsError):
         probe.write_json(path, {})
 
 
-async def test_ha_diagnostics_omit_credentials_and_device_ids():
-    from types import SimpleNamespace
-
+async def test_ha_diagnostics_omit_credentials_and_device_ids() -> None:
+    """Verify ha diagnostics omit credentials and device ids."""
     entry = SimpleNamespace(
         runtime_data=SimpleNamespace(
             last_update_success=True,
@@ -184,3 +201,6 @@ async def test_ha_diagnostics_omit_credentials_and_device_ids():
     serialized = json.dumps(result)
     for secret in ("private-box-id", "private@example.test", "secret"):
         assert secret not in serialized
+
+
+SAMPLE_SESSION = "test-token"

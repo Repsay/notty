@@ -19,19 +19,26 @@ SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
 
 def draw_icon(size: int) -> Image.Image:
     # Render at 4x, then downsample for crisp transparent PNGs.
+    """Draw icon.
+
+    Returns:
+        Image.Image: The resulting draw icon.
+    """
     factor = size * 4 / 256
     canvas = Image.new("RGBA", (size * 4, size * 4))
     draw = ImageDraw.Draw(canvas)
 
-    def box(coords):
+    def box(coords: tuple[int, ...]) -> tuple[int, ...]:
+        """Box.
+
+        Returns:
+            tuple[int, ...]: The resulting box.
+        """
         return tuple(round(c * factor) for c in coords)
 
     teal = "#087f8c"
     draw.rounded_rectangle(box((8, 8, 248, 248)), radius=round(64 * factor), fill=teal)
-    draw.polygon(
-        [box(p) for p in [(64, 112), (64, 58), (105, 84), (151, 84), (192, 58), (192, 112)]],
-        fill="white",
-    )
+    draw.polygon([box(p) for p in [(64, 112), (64, 58), (105, 84), (151, 84), (192, 58), (192, 112)]], fill="white")
     draw.ellipse(box((56, 74, 200, 204)), fill="white")
     for line in [(90, 132, 106, 137), (150, 137, 166, 132)]:
         draw.line(box(line), fill=teal, width=round(9 * factor))
@@ -39,25 +46,14 @@ def draw_icon(size: int) -> Image.Image:
     draw.line(box((128, 164, 128, 178)), fill=teal, width=round(6 * factor))
     draw.arc(box((102, 154, 154, 188)), 25, 155, fill=teal, width=round(6 * factor))
     draw.polygon(
-        [
-            box(p)
-            for p in [
-                (196, 32),
-                (200, 44),
-                (212, 48),
-                (200, 52),
-                (196, 64),
-                (192, 52),
-                (180, 48),
-                (192, 44),
-            ]
-        ],
+        [box(p) for p in [(196, 32), (200, 44), (212, 48), (200, 52), (196, 64), (192, 52), (180, 48), (192, 44)]],
         fill="#a5f3d2",
     )
     return canvas.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def main():
+def main() -> None:
+    """Main."""
     BRAND.mkdir(parents=True, exist_ok=True)
     (ROOT / "assets" / "icon.svg").write_text(SVG + "\n")
     for size, suffix in [(256, ""), (512, "@2x")]:
