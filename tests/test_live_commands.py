@@ -110,14 +110,14 @@ async def test_not_idle_prevents_write() -> None:
 
 def test_dnd_write_preserves_existing_window_and_rejects_zero_length() -> None:
     """Verify dnd write preserves existing window and rejects zero length."""
-    assert action_payload("dnd", 0, {"led": 0, "dnd_begin_time": "10:00", "dnd_end_time": "12:00"}) == {
+    assert action_payload("dnd", 0, {"led": 0, "dnd_begin_time": "10:00", "dnd_end_time": "12:00"}, time_zone="Asia/Shanghai") == {
         "switch": 0,
         "led": 0,
         "dnd_begin_time": "10:00",
         "dnd_end_time": "12:00",
     }
     with pytest.raises(ValidationError, match="identical"):
-        action_payload("dnd", 1, {"led": 2, "dnd_begin_time": "00:00", "dnd_end_time": "00:00"})
+        action_payload("dnd", 1, {"led": 2, "dnd_begin_time": "00:00", "dnd_end_time": "00:00"}, time_zone="Asia/Shanghai")
 
 
 async def test_dnd_missing_led_prevents_even_a_planned_write() -> None:
@@ -125,7 +125,7 @@ async def test_dnd_missing_led_prevents_even_a_planned_write() -> None:
     api = make_api()
     api.litter_info.return_value.pop("led")
     with pytest.raises(ValidationError, match="LED"):
-        await validate(api, device_id="9999", action="dnd", value="off", execute=False)
+        await validate(api, device_id="9999", action="dnd", value="off", execute=False, time_zone="Asia/Shanghai")
     api.litter_action.assert_not_awaited()
 
 
@@ -134,6 +134,42 @@ async def test_device_id_mismatch_stops_before_any_write() -> None:
     api = make_api()
     with pytest.raises(ValidationError, match="mismatch"):
         await validate(api, device_id="9998", action="child-lock", value="on", execute=True)
+    api.litter_action.assert_not_awaited()
+
+
+
+async def test_live_dnd_same_state_write_detects_shifted_schedule() -> None:
+    """A matching switch cannot mask a changed DND schedule."""
+    api = make_api(switch_dnd=1)
+    before = dict(api.litter_info.return_value)
+    before.update(dnd_begin_time="13:00", dnd_end_time="04:00")
+    after = dict(before, dnd_begin_time="19:00", dnd_end_time="10:00")
+    api.litter_info = AsyncMock(side_effect=[before, after])
+    sleep = AsyncMock()
+    result = await validate(
+        api,
+        device_id="9999",
+        action="dnd",
+        value="on",
+        execute=True,
+        time_zone="Europe/Amsterdam",
+        interactive=True,
+        ask=lambda _: "WRITE 9999 dnd on",
+        sleep=sleep,
+    )
+    assert result == 1
+    api.litter_action.assert_awaited_once_with(
+        "9999",
+        "set_dnd",
+        {"switch": 1, "led": 2, "dnd_begin_time": "07:00", "dnd_end_time": "22:00"},
+    )
+
+
+async def test_live_dnd_requires_timezone_if_device_does_not_report_one() -> None:
+    """No NOTTY zone and no explicit fallback means no write."""
+    api = make_api(switch_dnd=1)
+    with pytest.raises(ValidationError, match="timezone"):
+        await validate(api, device_id="9999", action="dnd", value="on", execute=True)
     api.litter_action.assert_not_awaited()
 
 
