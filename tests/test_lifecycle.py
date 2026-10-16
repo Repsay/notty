@@ -32,6 +32,8 @@ EXPECTED_5_MINUTES = "5 minutes"
 EXPECTED_LEN_ENTITY_ATTRIBUTES_OPTIONS = 15
 EXPECTED_5 = "5"
 EXPECTED_UNKNOWN = "unknown"
+EXPECTED_DND_START_UTC = "14:00:00"
+EXPECTED_DND_END_UTC = "23:00:00"
 EXPECTED_ENTITY_ATTRIBUTES_RAW_VALUE = 30
 EXPECTED_30_MINUTES = "30 minutes"
 
@@ -192,8 +194,10 @@ async def test_dnd_ha_time_entity_converts_readback(
     await setup(hass)
     start = hass.states.get("time.test_box_do_not_disturb_start")
     end = hass.states.get("time.test_box_do_not_disturb_end")
-    assert start is not None and start.state == "14:00:00"
-    assert end is not None and end.state == "23:00:00"
+    assert start is not None
+    assert end is not None
+    assert start.state == EXPECTED_DND_START_UTC
+    assert end.state == EXPECTED_DND_END_UTC
     await hass.services.async_call(
         "time",
         "set_value",
