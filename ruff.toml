@@ -114,3 +114,7 @@ allow-magic-value-types = []
 
 [lint.ruff]
 parenthesize-tuple-in-subscript = true
+
+[lint.per-file-ignores]
+# HA's discovery fixture must run before the plugin starts tracking timers.
+"tests/conftest.py" = ["pytest-fixture-autouse"]

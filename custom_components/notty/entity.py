@@ -1,18 +1,38 @@
-from homeassistant.helpers.device_registry import DeviceInfo
+from __future__ import annotations
+
+from homeassistant.helpers.device_registry import DeviceInfo, async_get
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from custom_components.notty.api import JsonValue
+from custom_components.notty.const import DOMAIN
+from custom_components.notty.coordinator import NottyCoordinator
+from custom_components.notty.models import DeviceBlock, DeviceData
 
 
-def merged_device_data(block: dict) -> dict:
+def merged_device_data(block: DeviceBlock) -> DeviceData:
+    """Merged device data.
+
+    Returns:
+        DeviceData: The resulting merged device data.
+    """
     return {**block.get("device", {}), **block.get("info", {})}
 
 
-def value_from_block(block: dict, key: str):
+def value_from_block(block: DeviceBlock, key: str) -> JsonValue:
+    """Value from block.
+
+    Returns:
+        JsonValue: The resulting value from block.
+    """
     return block.get("info", {}).get(key, block.get("device", {}).get(key))
 
 
 def title_from_key(key: str) -> str:
+    """Title from key.
+
+    Returns:
+        str: The resulting title from key.
+    """
     aliases = {
         "dnd": "Do Not Disturb",
         "default_remaining_days": "Litter Renewal Remaining Days",
@@ -84,29 +104,45 @@ def title_from_key(key: str) -> str:
     return aliases.get(key, key.replace("_", " ").title())
 
 
-class NottyEntity(CoordinatorEntity):
+class NottyEntity(CoordinatorEntity[NottyCoordinator]):
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, device_id, device):
+    def __init__(self, coordinator: NottyCoordinator, device_id: str, device: DeviceData) -> None:
         super().__init__(coordinator)
         self.device_id = device_id
         self.device = device
-        device_info = {
-            "identifiers": {(DOMAIN, device_id)},
-            "name": device.get("alias") or device.get("name") or f"NOTTY {device_id}",
-            "manufacturer": "NOTTY",
-            "model": device.get("model") or device.get("product_name") or device.get("device_name"),
-            "sw_version": device.get("version") or device.get("firmware_version"),
-        }
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            name=str(device.get("alias") or device.get("name") or f"NOTTY {device_id}"),
+            manufacturer="NOTTY",
+            model=str(device.get("model") or device.get("product_name") or device.get("device_name") or ""),
+            sw_version=str(device.get("version") or device.get("firmware_version") or ""),
+        )
         parent_device_id = device.get("_notty_litter_user_device_id")
-        if parent_device_id:
-            device_info["via_device"] = (DOMAIN, str(parent_device_id))
-        self._attr_device_info = DeviceInfo(**device_info)
+        if parent_device_id and coordinator.entry_id is not None:
+            registry = async_get(coordinator.hass)
+            if hasattr(registry, "async_get_device_by_identifier"):
+                parent = registry.async_get_device_by_identifier((DOMAIN, str(parent_device_id)), coordinator.entry_id)
+            else:
+                parent = registry.async_get_device(identifiers={(DOMAIN, str(parent_device_id))})
+            if parent is not None:
+                device_info["via_device_id"] = parent.id
+        self._attr_device_info = device_info
 
     @property
-    def block(self) -> dict:
-        return self.coordinator.data.get(self.device_id, {})
+    def block(self) -> DeviceBlock:
+        """Block.
+
+        Returns:
+            DeviceBlock: The resulting block.
+        """
+        return self.coordinator.data.get(self.device_id, {"device": {}, "info": {}, "type": ""})
 
     @property
     def available(self) -> bool:
+        """Available.
+
+        Returns:
+            bool: The resulting available.
+        """
         return super().available and self.device_id in (self.coordinator.data or {})

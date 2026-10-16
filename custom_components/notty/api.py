@@ -1,10 +1,20 @@
 from __future__ import annotations
 
-import asyncio
+from abc import ABC, abstractmethod
+from datetime import time
+import json
 import logging
-from typing import Any
+from typing import TypedDict, Unpack, cast
 
 import aiohttp
+
+HTTP_ERROR_STATUS = 400
+ACTION_ONE_KEY = "one_key"
+ACTION_SET_AUTO_DELAY = "set_auto_delay"
+MAX_DELAY_MINUTES = 15
+
+type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
+type JsonObject = dict[str, JsonValue]
 
 BASE_URL = "https://api.nottycat.com"
 FIREBASE_SIGN_IN_URL = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
@@ -15,9 +25,7 @@ LOGIN_CODE_TYPE_ID = 1
 LOGIN_USER_DEVICE_ID = 1
 LOGIN_DEVICE_ID = 1
 DEFAULT_CLIENT_ID = "0"
-DEVICE_INFO_PATHS = {
-    "litter_box": "/device/litter_box/get_info/",
-}
+DEVICE_INFO_PATHS = {"litter_box": "/device/litter_box/get_info/"}
 LITTER_READ_ENDPOINTS = {
     "plans": "/device/litter_box/plans/",
     "guide": "/device/litter_box/get_guide/",
@@ -76,14 +84,17 @@ SAFE_LITTER_ACTIONS = (
     "horizontal_calibration",
 )
 LIST_KEYS = ("list", "devices", "rows", "items", "data")
-LITTER_BIND_KEYS = (
-    "bind_litter_box",
-    "litter_box",
-    "litter_box_id",
-    "litter_box_user_device_id",
-    "lb_user_device_id",
-)
+LITTER_BIND_KEYS = ("bind_litter_box", "litter_box", "litter_box_id", "litter_box_user_device_id", "lb_user_device_id")
 _LOGGER = logging.getLogger(__name__)
+
+
+def matches_value(value: object, choices: tuple[object, ...]) -> bool:
+    """Compare JSON values without requiring hashability.
+
+    Returns:
+        Whether the value equals one of the explicit choices.
+    """
+    return any(value == choice for choice in choices)
 
 
 class NottyApiError(Exception):
@@ -94,34 +105,85 @@ class NottyAuthError(NottyApiError):
     """Authentication failed."""
 
 
-class NottyApi:
-    def __init__(
-        self,
-        session: aiohttp.ClientSession,
-        *,
-        email: str | None = None,
-        password: str | None = None,
-        verification_code: str | None = None,
-        token: str | None = None,
-        refresh_token: str | None = None,
-        user_id: str | int | None = None,
-        firebase_api_key: str | None = None,
-        client_id: str = DEFAULT_CLIENT_ID,
-        region_code: str = "NL",
-    ) -> None:
+def dnd_payload(current: JsonObject, **changes: JsonValue) -> JsonObject:
+    """Build a DND write while preserving the shared LED and time settings.
+
+    The app reads switch_dnd but writes switch. Never invent defaults for
+    settings that the same endpoint may overwrite (APK 1.1.30, 0xcc6fc8).
+
+    Returns:
+        The computed result.
+
+    Raises:
+        NottyApiError: When the requested operation cannot be completed.
+    """
+    state = {**current, **changes}
+    enabled = state.get("switch_dnd")
+    if not isinstance(enabled, (bool, int, str)) or enabled not in {0, 1, "0", "1"}:
+        msg = "Cannot preserve unknown Do Not Disturb switch state"
+        raise NottyApiError(msg)
+    led = state.get("led")
+    if not ((isinstance(led, int) and led >= 0) or (isinstance(led, str) and led.isascii() and led.isdecimal())):
+        msg = "Cannot preserve unknown LED setting for Do Not Disturb"
+        raise NottyApiError(msg)
+    payload: JsonObject = {"switch": int(enabled), "led": led}
+    for key in ("dnd_begin_time", "dnd_end_time"):
+        value = state.get(key)
+        try:
+            parsed = time.fromisoformat(value) if isinstance(value, str) else None
+        except ValueError:
+            parsed = None
+        if parsed is None or parsed.tzinfo is not None or parsed.second or parsed.microsecond:
+            msg = "Cannot preserve current Do Not Disturb interval"
+            raise NottyApiError(msg)
+        payload[key] = parsed.strftime("%H:%M")
+    if payload["switch"] and payload["dnd_begin_time"] == payload["dnd_end_time"]:
+        msg = "Cannot enable Do Not Disturb with identical start/end times"
+        raise NottyApiError(msg)
+    return payload
+
+
+class ConnectionOptions(TypedDict, total=False):
+    """Optional NOTTY account and session parameters."""
+
+    email: str | None
+    password: str | None
+    verification_code: str | None
+    token: str | None
+    refresh_token: str | None
+    user_id: str | int | None
+    firebase_api_key: str | None
+    client_id: str
+    region_code: str
+
+
+class NottyTransport(ABC):
+    """HTTP transport with one bounded authentication retry."""
+
+    def __init__(self, session: aiohttp.ClientSession, **options: Unpack[ConnectionOptions]) -> None:
         self._session = session
+        email = options.get("email")
+        verification_code = options.get("verification_code")
+        user_id = options.get("user_id")
         self.email = email.strip() if email else email
-        self.password = password
-        self.verification_code = (
-            verification_code.strip() if verification_code else verification_code
-        )
-        self.token = token
-        self.refresh_token = refresh_token
-        self.user_id = str(user_id) if user_id not in (None, "") else None
-        self.firebase_api_key = firebase_api_key or DEFAULT_FIREBASE_API_KEY
-        self.client_id = client_id
-        self.region_code = region_code
-        self._authenticating = False
+        self.password = options.get("password")
+        self.verification_code = verification_code.strip() if verification_code else verification_code
+        self.token = options.get("token")
+        self.refresh_token = options.get("refresh_token")
+        self.user_id = str(user_id) if not matches_value(user_id, (None, "")) else None
+        self.firebase_api_key = options.get("firebase_api_key") or DEFAULT_FIREBASE_API_KEY
+        self.client_id = options.get("client_id", DEFAULT_CLIENT_ID)
+        self.region_code = options.get("region_code", "NL")
+        self.authenticating = False
+
+    @abstractmethod
+    async def login(self) -> str:
+        """Authenticate or renew the credentials used by transport requests.
+
+        Returns:
+            The account access token.
+        """
+        raise NotImplementedError
 
     def _headers(self) -> dict[str, str]:
         headers = {
@@ -142,10 +204,20 @@ class NottyApi:
         return headers
 
     @staticmethod
-    def _unwrap(payload: Any) -> Any:
+    def unwrap(payload: JsonValue) -> JsonValue:
+        """Unwrap.
+
+        Returns:
+            JsonValue: The resulting unwrap.
+
+        Raises:
+            NottyApiError: When the requested operation cannot be completed.
+            NottyAuthError: When the cloud session is rejected.
+            NottyAuthError: When the requested operation cannot be completed.
+        """
         if isinstance(payload, dict):
             code = payload.get("code", payload.get("error_code"))
-            if code not in (None, 0, 200, "0", "200"):
+            if not matches_value(code, (None, 0, 200, "0", "200")):
                 message = payload.get("message") or payload.get("msg") or str(payload)
                 if str(code) in {"401", "403", "1001", "1002"}:
                     raise NottyAuthError(message)
@@ -155,24 +227,32 @@ class NottyApi:
                     return payload[key]
         return payload
 
-    async def _raw_request(
+    async def raw_request(
         self,
         method: str,
         url: str,
         *,
-        data: dict[str, Any] | None = None,
-        form: dict[str, Any] | None = None,
+        data: JsonObject | None = None,
+        form: JsonObject | None = None,
         authenticated: bool = True,
-    ) -> Any:
+    ) -> JsonValue:
+        """Raw request.
+
+        Returns:
+            JsonValue: The resulting raw request.
+
+        Raises:
+            NottyApiError: When the requested operation cannot be completed.
+            NottyAuthError: When the cloud session is rejected.
+            NottyAuthError: When the requested operation cannot be completed.
+        """
         headers = (
             self._headers()
             if authenticated
             else {
                 "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "en",
-                "Content-Type": "application/json"
-                if form is None
-                else "application/x-www-form-urlencoded",
+                "Content-Type": "application/json" if form is None else "application/x-www-form-urlencoded",
                 "User-Agent": APP_USER_AGENT,
                 "User-Aagent": APP_USER_AGENT,
                 "HZUID": "2",
@@ -183,63 +263,89 @@ class NottyApi:
             headers["xjiang_region_id"] = self.region_code
         try:
             async with self._session.request(
-                method,
-                url,
-                json=data,
-                data=form,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=20),
+                method, url, json=data, data=form, headers=headers, timeout=aiohttp.ClientTimeout(total=20)
             ) as response:
                 text = await response.text()
-                if response.status in (401, 403):
-                    raise NottyAuthError(f"HTTP {response.status}")
-                if response.status >= 400:
-                    raise NottyApiError(f"HTTP {response.status}")
-                try:
-                    payload = await response.json(content_type=None)
-                except Exception:
-                    return {"raw": text}
-        except asyncio.TimeoutError as err:
-            raise NottyApiError("Timeout contacting NOTTY") from err
+                response_status = response.status
+        except TimeoutError as err:
+            msg = "Timeout contacting NOTTY"
+            raise NottyApiError(msg) from err
         except aiohttp.ClientError as err:
             raise NottyApiError(str(err)) from err
-        return self._unwrap(payload)
-
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        data: dict[str, Any] | None = None,
-        retry_auth: bool = True,
-    ) -> Any:
+        if response_status in {401, 403}:
+            message = f"HTTP {response_status}"
+            raise NottyAuthError(message)
+        if response_status >= HTTP_ERROR_STATUS:
+            message = f"HTTP {response_status}"
+            raise NottyApiError(message)
         try:
-            return await self._raw_request(method, f"{BASE_URL}{path}", data=data)
+            payload = cast("JsonValue", json.loads(text))
+        except json.JSONDecodeError:
+            return {"raw": text}
+        return self.unwrap(payload)
+
+    async def request(
+        self, method: str, path: str, *, data: JsonObject | None = None, retry_auth: bool = True
+    ) -> JsonValue:
+        """Request.
+
+        Returns:
+            JsonValue: The resulting request.
+
+        Raises:
+            NottyAuthError: When the cloud session is rejected.
+        """
+        try:
+            return await self.raw_request(method, f"{BASE_URL}{path}", data=data)
         except NottyAuthError:
-            if not retry_auth or self._authenticating or not self.email or not self.password:
+            if not retry_auth or self.authenticating or not self.email or not self.password:
                 raise
             await self.login()
-            return await self._request(method, path, data=data, retry_auth=False)
+            return await self.request(method, path, data=data, retry_auth=False)
+
+    async def verify_token(self) -> JsonValue:
+        """Verify token.
+
+        Returns:
+            JsonValue: The resulting verify token.
+        """
+        return await self.request("GET", "/account/verify_token", retry_auth=False)
+
+    async def endpoint_action(self, device_id: str, path: str) -> JsonValue:
+        """Endpoint action.
+
+        Returns:
+            JsonValue: The resulting endpoint action.
+        """
+        return await self.request("POST", path, data=self._device_payload(device_id))
 
     @staticmethod
-    def _find_first(result: Any, keys: tuple[str, ...]) -> Any:
+    def _device_payload(device_id: str) -> JsonObject:
+        return {"user_device_id": device_id, "device_id": device_id}
+
+
+class NottyApi(NottyTransport):
+    """NOTTY account, litter-box and pet endpoints."""
+
+    @staticmethod
+    def _find_first(result: JsonValue, keys: tuple[str, ...]) -> JsonValue:
         if isinstance(result, dict):
             for key in keys:
-                if key in result and result[key] not in (None, ""):
+                if key in result and not matches_value(result[key], (None, "")):
                     return result[key]
             for value in result.values():
                 found = NottyApi._find_first(value, keys)
-                if found not in (None, ""):
+                if not matches_value(found, (None, "")):
                     return found
         elif isinstance(result, list):
             for item in result:
                 found = NottyApi._find_first(item, keys)
-                if found not in (None, ""):
+                if not matches_value(found, (None, "")):
                     return found
         return None
 
     @staticmethod
-    def _as_list(result: Any) -> list[dict[str, Any]]:
+    def _as_list(result: JsonValue) -> list[JsonObject]:
         if isinstance(result, dict):
             for key in LIST_KEYS:
                 value = result.get(key)
@@ -253,35 +359,34 @@ class NottyApi:
         return [item for item in result if isinstance(item, dict)]
 
     @staticmethod
-    def _bound_litter_id(pet: dict[str, Any]) -> str | None:
+    def _bound_litter_id(pet: JsonObject) -> str | None:
         for key in LITTER_BIND_KEYS:
             value = pet.get(key)
-            if isinstance(value, bool) or value in (None, "", 0, "0"):
+            if isinstance(value, bool) or matches_value(value, (None, "", 0, "0")):
                 continue
             if isinstance(value, dict):
-                found = NottyApi._find_first(
-                    value,
-                    ("user_device_id", "device_id", "id", "did"),
-                )
-                if found not in (None, "", 0, "0", False):
+                found = NottyApi._find_first(value, ("user_device_id", "device_id", "id", "did"))
+                if not matches_value(found, (None, "", 0, "0")):
                     return str(found)
                 continue
             if isinstance(value, list):
-                found = NottyApi._find_first(
-                    value,
-                    ("user_device_id", "device_id", "id", "did"),
-                )
-                if found not in (None, "", 0, "0", False):
+                found = NottyApi._find_first(value, ("user_device_id", "device_id", "id", "did"))
+                if not matches_value(found, (None, "", 0, "0")):
                     return str(found)
                 continue
             return str(value)
         return None
 
     @staticmethod
-    def _pet_litter_device_id(pet: dict[str, Any]) -> str | None:
+    def pet_litter_device_id(pet: JsonObject) -> str | None:
+        """Pet litter device id.
+
+        Returns:
+            str | None: The resulting pet litter device id.
+        """
         for key in ("_notty_litter_user_device_id", "litter_user_device_id"):
             value = pet.get(key)
-            if value not in (None, "", 0, "0", False):
+            if not matches_value(value, (None, "", 0, "0")):
                 return str(value)
 
         bound_id = NottyApi._bound_litter_id(pet)
@@ -295,34 +400,33 @@ class NottyApi:
                     continue
                 for key in ("user_device_id", "device_id", "id", "did"):
                     found = bound_device.get(key)
-                    if found not in (None, "", 0, "0", False):
+                    if not matches_value(found, (None, "", 0, "0")):
                         return str(found)
         return None
 
     @staticmethod
-    def _pet_has_litter_data(pet: dict[str, Any]) -> bool:
+    def _pet_has_litter_data(pet: JsonObject) -> bool:
         if pet.get("bind_litter_box") or pet.get("has_litter_box_data"):
             return True
-        for key in (
-            "today_wc_count",
-            "today_wc_duration",
-            "yesterday_wc_count",
-            "yesterday_wc_duration",
-            "wc_status",
-        ):
-            if pet.get(key) not in (None, "", 0, "0", False):
+        for key in ("today_wc_count", "today_wc_duration", "yesterday_wc_count", "yesterday_wc_duration", "wc_status"):
+            if not matches_value(pet.get(key), (None, "", 0, "0")):
                 return True
         return False
 
     @staticmethod
-    def _pet_litter_device(pet: dict[str, Any]) -> dict[str, Any] | None:
-        device_id = NottyApi._pet_litter_device_id(pet)
+    def pet_litter_device(pet: JsonObject) -> JsonObject | None:
+        """Pet litter device.
+
+        Returns:
+            JsonObject | None: The resulting pet litter device.
+        """
+        device_id = NottyApi.pet_litter_device_id(pet)
         has_litter_data = NottyApi._pet_has_litter_data(pet)
         pet_id = pet.get("pet_id") or pet.get("id")
-        if not device_id and (not has_litter_data or pet_id in (None, "")):
+        if not device_id and (not has_litter_data or matches_value(pet_id, (None, ""))):
             return None
         pet_name = pet.get("alias") or pet.get("name") or pet.get("pet_name")
-        device = {
+        return {
             **pet,
             "_notty_source": "pet",
             "_notty_has_device_id": False,
@@ -334,42 +438,46 @@ class NottyApi:
             "model": "Litter Box Pet",
             "id": f"pet_{pet_id}",
         }
-        return device
 
     @staticmethod
-    def _extract_login(result: Any) -> tuple[str | None, str | None, str | None]:
+    def _extract_login(result: JsonValue) -> tuple[str | None, str | None, str | None]:
         if not isinstance(result, dict):
             return None, None, None
         token = NottyApi._find_first(result, ("access_token", "accessToken", "token", "idToken"))
         refresh = NottyApi._find_first(result, ("refresh_token", "refreshToken"))
         user_id = result.get("user_id") or result.get("userId") or result.get("uid")
-        if user_id in (None, ""):
+        if matches_value(user_id, (None, "")):
             user = result.get("user") or result.get("userInfo") or result.get("account")
             user_id = NottyApi._find_first(user, ("user_id", "userId", "uid", "id"))
         return (
             str(token) if token else None,
             str(refresh) if refresh else None,
-            str(user_id) if user_id not in (None, "") else None,
+            str(user_id) if not matches_value(user_id, (None, "")) else None,
         )
 
-    async def request_email_code(self) -> Any:
+    async def request_email_code(self) -> JsonValue:
+        """Request email code.
+
+        Returns:
+            JsonValue: The resulting request email code.
+
+        Raises:
+            NottyAuthError: When the requested operation cannot be completed.
+        """
         if not self.email:
-            raise NottyAuthError("Email address is required")
-        return await self._raw_request(
+            msg = "Email address is required"
+            raise NottyAuthError(msg)
+        return await self.raw_request(
             "POST",
             f"{BASE_URL}/account/get_email_code",
-            data={
-                "email": self.email,
-                "code_type_id": LOGIN_CODE_TYPE_ID,
-                "client_id": self.client_id,
-            },
+            data={"email": self.email, "code_type_id": LOGIN_CODE_TYPE_ID, "client_id": self.client_id},
             authenticated=False,
         )
 
     async def _login_with_email_code(self) -> bool:
         if not self.email or not self.verification_code:
             return False
-        result = await self._raw_request(
+        result = await self.raw_request(
             "POST",
             f"{BASE_URL}/account/login_by_email",
             data={
@@ -392,8 +500,9 @@ class NottyApi:
 
     async def _firebase_password_sign_in(self) -> tuple[str, str | None]:
         if not self.firebase_api_key:
-            raise NottyAuthError("Firebase API key is required")
-        result = await self._raw_request(
+            msg = "Firebase API key is required"
+            raise NottyAuthError(msg)
+        result = await self.raw_request(
             "POST",
             f"{FIREBASE_SIGN_IN_URL}?key={self.firebase_api_key}",
             data={"email": self.email, "password": self.password, "returnSecureToken": True},
@@ -401,12 +510,18 @@ class NottyApi:
         )
         token, refresh, _user_id = self._extract_login(result)
         if not token:
-            raise NottyAuthError("Firebase login response contained no ID token")
+            msg = "Firebase login response contained no ID token"
+            raise NottyAuthError(msg)
         return token, refresh
 
-    async def _login_with_firebase(self) -> bool:
+    async def login_with_firebase(self) -> bool:
+        """Login with firebase.
+
+        Returns:
+            bool: The resulting login with firebase.
+        """
         id_token, refresh = await self._firebase_password_sign_in()
-        attempts: tuple[dict[str, Any], ...] = (
+        attempts: tuple[JsonObject, ...] = (
             {
                 "code_type_id": LOGIN_CODE_TYPE_ID,
                 "email": self.email,
@@ -464,11 +579,8 @@ class NottyApi:
         errors: list[str] = []
         for payload in attempts:
             try:
-                result = await self._raw_request(
-                    "POST",
-                    f"{BASE_URL}/account/login_by_email",
-                    data=payload,
-                    authenticated=False,
+                result = await self.raw_request(
+                    "POST", f"{BASE_URL}/account/login_by_email", data=payload, authenticated=False
                 )
             except NottyApiError as err:
                 errors.append(str(err))
@@ -483,10 +595,15 @@ class NottyApi:
         _LOGGER.debug("NOTTY Firebase token exchange attempts failed: %s", " | ".join(errors))
         return False
 
-    async def _login_notty(self) -> bool:
+    async def login_notty(self) -> bool:
         # The Flutter APK exposes account login code and Firebase Auth, but its exact
         # password exchange is AOT compiled. Try known/common NOTTY payload variants.
-        attempts: tuple[tuple[str, dict[str, Any]], ...] = (
+        """Login notty.
+
+        Returns:
+            bool: The resulting login notty.
+        """
+        attempts: tuple[tuple[str, JsonObject], ...] = (
             (
                 "/account/login",
                 {
@@ -528,9 +645,7 @@ class NottyApi:
         errors: list[str] = []
         for path, payload in attempts:
             try:
-                result = await self._raw_request(
-                    "POST", f"{BASE_URL}{path}", data=payload, authenticated=False
-                )
+                result = await self.raw_request("POST", f"{BASE_URL}{path}", data=payload, authenticated=False)
             except NottyApiError as err:
                 errors.append(f"{path}: {err}")
                 continue
@@ -545,16 +660,21 @@ class NottyApi:
         return False
 
     async def login(self) -> str:
-        """Authenticate without recursively retrying during credential validation."""
-        self._authenticating = True
+        """Authenticate without recursively retrying during credential validation.
+
+        Returns:
+            The computed result.
+        """
+        self.authenticating = True
         try:
             return await self._login()
         finally:
-            self._authenticating = False
+            self.authenticating = False
 
     async def _login(self) -> str:
         if not self.email:
-            raise NottyAuthError("Email address is required")
+            msg = "Email address is required"
+            raise NottyAuthError(msg)
 
         errors: list[str] = []
         if self.verification_code:
@@ -566,94 +686,142 @@ class NottyApi:
                 errors.append(f"Email code: {err}")
 
         if self.password:
-            try:
-                if await self._login_with_firebase():
-                    await self.devices()
-                    return self.token or ""
-            except NottyApiError as err:
-                errors.append(f"Firebase/NOTTY: {err}")
-
-            try:
-                if await self._login_notty():
-                    await self.devices()
-                    return self.token or ""
-            except NottyApiError as err:
-                errors.append(f"NOTTY: {err}")
+            for label, provider in (("Firebase/NOTTY", self.login_with_firebase), ("NOTTY", self.login_notty)):
+                try:
+                    accepted = await provider()
+                    if accepted:
+                        await self.devices()
+                        return self.token or ""
+                except NottyApiError as err:
+                    errors.append(f"{label}: {err}")
 
         if not self.password and not self.verification_code:
-            raise NottyAuthError("Password or verification code is required")
+            msg = "Password or verification code is required"
+            raise NottyAuthError(msg)
 
         detail = "; ".join(errors) or "No supported login endpoint accepted the credentials"
         raise NottyAuthError(detail)
 
-    async def verify_token(self) -> Any:
-        return await self._request("GET", "/account/verify_token", retry_auth=False)
+    async def pets(self) -> list[JsonObject]:
+        """Pets.
 
-    async def pets(self) -> list[dict[str, Any]]:
-        return self._as_list(await self._request("GET", "/pet/list"))
+        Returns:
+            list[JsonObject]: The resulting pets.
+        """
+        return self._as_list(await self.request("GET", "/pet/list"))
 
     @staticmethod
-    def _litter_pet_ids(pets: list[dict[str, Any]]) -> list[str]:
+    def _litter_pet_ids(pets: list[JsonObject]) -> list[str]:
         pet_ids: list[str] = []
         for pet in pets:
             if not NottyApi._pet_has_litter_data(pet):
                 continue
             pet_id = pet.get("pet_id") or pet.get("id")
-            if pet_id not in (None, ""):
+            if not matches_value(pet_id, (None, "")):
                 pet_ids.append(str(pet_id))
         return pet_ids
 
-    async def user_devices(self, pets: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-        errors: list[str] = []
-        discovered: dict[str, dict[str, Any]] = {}
+    @staticmethod
+    def _merge_user_devices(
+        discovered: dict[str, JsonObject], rows: list[JsonObject], *, pet_id: str | None = None
+    ) -> None:
+        for device in rows:
+            device_id = str(device.get("user_device_id") or device.get("id") or "")
+            if not device_id:
+                continue
+            merged = {
+                **discovered.get(device_id, {}),
+                **device,
+                "_notty_source": "device",
+                "_notty_has_device_id": True,
+            }
+            if pet_id is not None:
+                existing_ids = discovered.get(device_id, {}).get("_notty_pet_ids")
+                pet_ids = {str(item) for item in existing_ids} if isinstance(existing_ids, list) else set()
+                pet_ids.add(pet_id)
+                merged["_notty_pet_ids"] = cast("list[JsonValue]", sorted(pet_ids))
+            discovered[device_id] = merged
 
-        for pet_id in self._litter_pet_ids(pets if pets is not None else await self.pets()):
-            try:
-                for device in self._as_list(
-                    await self._request("GET", f"/device/get_user_devices/{pet_id}")
-                ):
-                    device_id = str(device.get("user_device_id") or device.get("id") or "")
-                    if not device_id:
-                        continue
-                    pet_ids = set(discovered.get(device_id, {}).get("_notty_pet_ids", []))
-                    pet_ids.add(pet_id)
-                    discovered[device_id] = {
-                        **discovered.get(device_id, {}),
-                        **device,
-                        "_notty_source": "device",
-                        "_notty_has_device_id": True,
-                        "_notty_pet_ids": sorted(pet_ids),
-                    }
-            except NottyAuthError:
-                raise
-            except NottyApiError as err:
-                errors.append(f"GET /device/get_user_devices/{pet_id}: {err}")
+    async def _discovery_pet_ids(self, pets: list[JsonObject] | None) -> list[str]:
+        return self._litter_pet_ids(pets if pets is not None else await self.pets())
 
-        for path in ("/device/get_user_devices/2", "/device/get_user_devices/"):
-            try:
-                for device in self._as_list(await self._request("GET", path)):
-                    device_id = str(device.get("user_device_id") or device.get("id") or "")
-                    if device_id:
-                        discovered[device_id] = {
-                            **discovered.get(device_id, {}),
-                            **device,
-                            "_notty_source": "device",
-                            "_notty_has_device_id": True,
-                        }
-            except NottyAuthError:
-                raise
-            except NottyApiError as err:
-                errors.append(f"GET {path}: {err}")
-
+    @staticmethod
+    def _discovery_results(discovered: dict[str, JsonObject], errors: list[str]) -> list[JsonObject]:
         if discovered:
             return list(discovered.values())
         if errors:
             raise NottyApiError("; ".join(errors))
         return []
 
-    async def devices(self) -> list[dict[str, Any]]:
+    async def user_devices(self, pets: list[JsonObject] | None = None) -> list[JsonObject]:
+        """User devices.
+
+        Returns:
+            list[JsonObject]: The resulting user devices.
+
+        Raises:
+            NottyAuthError: When the cloud session is rejected.
+        """
         errors: list[str] = []
-        discovered: dict[str, dict[str, Any]] = {}
+        discovered: dict[str, JsonObject] = {}
+
+        for pet_id in await self._discovery_pet_ids(pets):
+            try:
+                rows = self._as_list(await self.request("GET", f"/device/get_user_devices/{pet_id}"))
+            except NottyAuthError:
+                raise
+            except NottyApiError as err:
+                errors.append(f"GET /device/get_user_devices/{pet_id}: {err}")
+            else:
+                self._merge_user_devices(discovered, rows, pet_id=pet_id)
+
+        for path in ("/device/get_user_devices/2", "/device/get_user_devices/"):
+            try:
+                rows = self._as_list(await self.request("GET", path))
+            except NottyAuthError:
+                raise
+            except NottyApiError as err:
+                errors.append(f"GET {path}: {err}")
+            else:
+                self._merge_user_devices(discovered, rows)
+
+        return self._discovery_results(discovered, errors)
+
+    def _merge_discovered_pets(self, discovered: dict[str, JsonObject], pets: list[JsonObject]) -> None:
+        pet_parents: dict[str, set[str]] = {}
+        for physical in discovered.values():
+            parent_id = physical.get("user_device_id")
+            if matches_value(parent_id, (None, "")):
+                continue
+            associated_ids = physical.get("_notty_pet_ids")
+            if not isinstance(associated_ids, list):
+                continue
+            for pet_id in associated_ids:
+                pet_parents.setdefault(str(pet_id), set()).add(str(parent_id))
+
+        for pet in pets:
+            pet_device = self.pet_litter_device(pet)
+            if pet_device:
+                device = pet_device
+                # Boolean bind_litter_box indicates a binding, but provides no device ID.
+                parents = pet_parents.get(str(device["pet_id"]), set())
+                if not device.get("_notty_litter_user_device_id") and len(parents) == 1:
+                    device["_notty_litter_user_device_id"] = next(iter(parents))
+                device_id = str(device.get("id"))
+                discovered[device_id] = {**discovered.get(device_id, {}), **device}
+
+    async def devices(self) -> list[JsonObject]:
+        """Devices.
+
+        Returns:
+            list[JsonObject]: The resulting devices.
+
+        Raises:
+            NottyApiError: When the requested operation cannot be completed.
+            NottyAuthError: When the cloud session is rejected.
+        """
+        errors: list[str] = []
+        discovered: dict[str, JsonObject] = {}
         account_endpoint_ok = False
 
         try:
@@ -675,40 +843,23 @@ class NottyApi:
         except NottyApiError as err:
             errors.append(f"/device/get_user_devices/<pet_id>: {err}")
 
-        pet_parents: dict[str, set[str]] = {}
-        for physical in discovered.values():
-            parent_id = physical.get("user_device_id")
-            if parent_id in (None, ""):
-                continue
-            for pet_id in physical.get("_notty_pet_ids") or []:
-                pet_parents.setdefault(str(pet_id), set()).add(str(parent_id))
-
-        for pet in pets:
-            device = self._pet_litter_device(pet)
-            if device:
-                # Boolean bind_litter_box indicates a binding, but provides no device ID.
-                parents = pet_parents.get(str(device["pet_id"]), set())
-                if not device.get("_notty_litter_user_device_id") and len(parents) == 1:
-                    device["_notty_litter_user_device_id"] = next(iter(parents))
-                device_id = str(device.get("id"))
-                discovered[device_id] = {
-                    **discovered.get(device_id, {}),
-                    **device,
-                }
+        self._merge_discovered_pets(discovered, pets)
         if pets:
             account_endpoint_ok = True
 
         if discovered or account_endpoint_ok:
             return list(discovered.values())
-        raise NottyApiError(
-            "; ".join(errors) or "No supported device list endpoint returned devices"
-        )
+        raise NottyApiError("; ".join(errors) or "No supported device list endpoint returned devices")
 
-    @staticmethod
-    def _device_payload(device_id: str) -> dict[str, str]:
-        return {"user_device_id": device_id, "device_id": device_id}
+    async def device_info(self, device_id: str, device_type: str) -> JsonObject:
+        """Device info.
 
-    async def device_info(self, device_id: str, device_type: str) -> dict[str, Any]:
+        Returns:
+            JsonObject: The resulting device info.
+
+        Raises:
+            NottyAuthError: When the cloud session is rejected.
+        """
         base_path = DEVICE_INFO_PATHS.get(device_type)
         if not base_path:
             return {}
@@ -719,85 +870,106 @@ class NottyApi:
             ("POST", base_path, self._device_payload(device_id)),
         ):
             try:
-                result = await self._request(
-                    method,
-                    path,
-                    data=data,
-                )
+                result = await self.request(method, path, data=data)
                 return result if isinstance(result, dict) else {"data": result}
             except NottyAuthError:
                 raise
             except NottyApiError:
+                _LOGGER.debug("Optional NOTTY endpoint unavailable: %s", path)
                 continue
         return {}
 
-    async def litter_info(self, device_id: str) -> dict[str, Any]:
+    async def litter_info(self, device_id: str) -> JsonObject:
+        """Litter info.
+
+        Returns:
+            JsonObject: The resulting litter info.
+        """
         return await self.device_info(device_id, "litter_box")
 
-    async def litter_related_info(self, device_id: str) -> dict[str, Any]:
-        related: dict[str, Any] = {}
-        payload = self._device_payload(device_id)
-        for key, base_path in LITTER_READ_ENDPOINTS.items():
-            for method, path, data in (
-                ("GET", f"{base_path}{device_id}", None),
-                ("POST", base_path, payload),
-            ):
-                try:
-                    result = await self._request(method, path, data=data)
-                except NottyAuthError:
-                    raise
-                except NottyApiError:
-                    continue
-                related[key] = result
-                if isinstance(result, list):
-                    related[f"{key}_count"] = len(result)
-                elif isinstance(result, dict):
-                    items = self._as_list(result)
-                    if items:
-                        related[f"{key}_count"] = len(items)
-                break
+    @staticmethod
+    def _related_value(key: str, result: JsonValue) -> JsonObject:
+        values: JsonObject = {key: result}
+        items = result if isinstance(result, list) else NottyApi._as_list(result)
+        if items or isinstance(result, list):
+            values[f"{key}_count"] = len(items)
+        return values
 
-        pet_rows: dict[str, dict[str, Any]] = {}
-        for source_key in ("associated_pets", "pet_data_list"):
-            for row in self._as_list(related.get(source_key)):
-                pet_id = row.get("pet_id") or row.get("id")
-                if pet_id in (None, ""):
-                    continue
-                pet_rows.setdefault(str(pet_id), {}).update(row)
-
-        for key, template in LITTER_PET_READ_ENDPOINTS.items():
-            rows: list[dict[str, Any]] = []
-            for pet_id, pet_row in pet_rows.items():
-                try:
-                    result = await self._request(
-                        "GET",
-                        template.format(device_id=device_id, pet_id=pet_id),
-                    )
-                except NottyAuthError:
-                    raise
-                except NottyApiError:
-                    continue
-                if result in (None, ""):
-                    continue
-                row = {
-                    "pet_id": pet_id,
-                    "name": pet_row.get("name") or pet_row.get("alias"),
-                    key: result,
-                }
-                rows.append({k: v for k, v in row.items() if v not in (None, "")})
-            if rows:
-                related[key] = rows
-                related[f"{key}_count"] = len(rows)
-        return related
-
-    async def pet_related_info(self, pet_id: str) -> dict[str, Any]:
-        related: dict[str, Any] = {}
-        for key, base_path in PET_READ_ENDPOINTS.items():
+    async def _read_litter_related(self, device_id: str, key: str, base_path: str) -> JsonObject:
+        for method, path, data in (
+            ("GET", f"{base_path}{device_id}", None),
+            ("POST", base_path, self._device_payload(device_id)),
+        ):
             try:
-                result = await self._request("GET", base_path.format(pet_id=pet_id))
+                result = await self.request(method, path, data=data)
             except NottyAuthError:
                 raise
             except NottyApiError:
+                _LOGGER.debug("Optional NOTTY endpoint unavailable: %s", path)
+            else:
+                return self._related_value(key, result)
+        return {}
+
+    @staticmethod
+    def _related_pet_rows(related: JsonObject) -> dict[str, JsonObject]:
+        pet_rows: dict[str, JsonObject] = {}
+        for source_key in ("associated_pets", "pet_data_list"):
+            for row in NottyApi._as_list(related.get(source_key)):
+                pet_id = row.get("pet_id") or row.get("id")
+                if not matches_value(pet_id, (None, "")):
+                    pet_rows.setdefault(str(pet_id), {}).update(row)
+        return pet_rows
+
+    async def _read_litter_pets(
+        self, device_id: str, key: str, template: str, pet_rows: dict[str, JsonObject]
+    ) -> list[JsonValue]:
+        rows: list[JsonValue] = []
+        for pet_id, pet_row in pet_rows.items():
+            try:
+                result = await self.request("GET", template.format(device_id=device_id, pet_id=pet_id))
+            except NottyAuthError:
+                raise
+            except NottyApiError:
+                _LOGGER.debug("Optional pet endpoint unavailable: %s", template)
+                continue
+            if not matches_value(result, (None, "")):
+                row = {"pet_id": pet_id, "name": pet_row.get("name") or pet_row.get("alias"), key: result}
+                rows.append({k: v for k, v in row.items() if not matches_value(v, (None, ""))})
+        return rows
+
+    async def litter_related_info(self, device_id: str) -> JsonObject:
+        """Read optional litter-box endpoints and associated pet statistics.
+
+        Returns:
+            Successful optional responses and row counts.
+        """
+        related: JsonObject = {}
+        for key, base_path in LITTER_READ_ENDPOINTS.items():
+            related.update(await self._read_litter_related(device_id, key, base_path))
+        pet_rows = self._related_pet_rows(related)
+        for key, template in LITTER_PET_READ_ENDPOINTS.items():
+            rows = await self._read_litter_pets(device_id, key, template, pet_rows)
+            if rows:
+                related.update(self._related_value(key, rows))
+        return related
+
+    async def pet_related_info(self, pet_id: str) -> JsonObject:
+        """Pet related info.
+
+        Returns:
+            JsonObject: The resulting pet related info.
+
+        Raises:
+            NottyAuthError: When the cloud session is rejected.
+        """
+        related: JsonObject = {}
+        for key, base_path in PET_READ_ENDPOINTS.items():
+            try:
+                result = await self.request("GET", base_path.format(pet_id=pet_id))
+            except NottyAuthError:
+                raise
+            except NottyApiError:
+                _LOGGER.debug("Optional NOTTY endpoint unavailable: %s", base_path)
                 continue
             related[key] = result
             if isinstance(result, list):
@@ -809,34 +981,52 @@ class NottyApi:
         return related
 
     async def unread_message_count(self) -> int | None:
-        result = await self._request("GET", "/message/get_unread_count")
+        """Unread message count.
+
+        Returns:
+            int | None: The resulting unread message count.
+        """
+        result = await self.request("GET", "/message/get_unread_count")
         return result if isinstance(result, int) else None
 
-    async def save_pet(self, pet_id: str, data: dict[str, Any]) -> Any:
-        payload = {"pet_id": pet_id, **data}
-        return await self._request("POST", "/pet/save", data=payload)
+    async def save_pet(self, pet_id: str, data: JsonObject) -> JsonValue:
+        """Save pet.
 
-    async def associate_pet(self, device_id: str, pet_id: str, associate: bool = True) -> Any:
-        return await self._request(
+        Returns:
+            JsonValue: The resulting save pet.
+        """
+        payload = {"pet_id": pet_id, **data}
+        return await self.request("POST", "/pet/save", data=payload)
+
+    async def associate_pet(self, device_id: str, pet_id: str, *, associate: bool = True) -> JsonValue:
+        """Associate pet.
+
+        Returns:
+            JsonValue: The resulting associate pet.
+        """
+        return await self.request(
             "POST",
             "/device/associate_pet",
-            data={
-                "user_device_id": device_id,
-                "pet_id": pet_id,
-                "associate": associate,
-            },
+            data={"user_device_id": device_id, "pet_id": pet_id, "associate": associate},
         )
 
-    async def save_pet_weight(self, pet_id: str, weight: float, current: dict[str, Any]) -> Any:
+    async def save_pet_weight(self, pet_id: str, weight: float, current: JsonObject) -> JsonValue:
+        """Save pet weight.
+
+        Returns:
+            JsonValue: The resulting save pet weight.
+
+        Raises:
+            NottyApiError: When the requested operation cannot be completed.
+        """
         pet_devices = current.get("pet_devices")
-        litter_device_id = self._pet_litter_device_id(current)
+        litter_device_id = self.pet_litter_device_id(current)
         has_litter_binding = bool(
             litter_device_id or current.get("bind_litter_box") or current.get("has_litter_box_data")
         )
         if has_litter_binding and not litter_device_id:
-            raise NottyApiError(
-                "Refusing to update cat weight without the current litter-box binding data"
-            )
+            msg = "Refusing to update cat weight without the current litter-box binding data"
+            raise NottyApiError(msg)
         payload = {
             "name": current.get("name") or current.get("alias"),
             "birthday": current.get("birthday"),
@@ -853,33 +1043,42 @@ class NottyApi:
             if key in current:
                 payload[key] = current[key]
         result = await self.save_pet(
-            pet_id,
-            {key: value for key, value in payload.items() if value not in (None, "")},
+            pet_id, {key: value for key, value in payload.items() if not matches_value(value, (None, ""))}
         )
         if litter_device_id:
-            await self.associate_pet(litter_device_id, pet_id, True)
+            await self.associate_pet(litter_device_id, pet_id, associate=True)
         return result
 
-    async def command(self, device_id: str, action: Any, device_type: str = "litter_box") -> Any:
-        return await self._request(
-            "POST",
-            f"/device/{device_type}/one_key",
-            data={
-                "user_device_id": device_id,
-                "one_key": action,
-            },
+    async def command(self, device_id: str, action: JsonValue, device_type: str = "litter_box") -> JsonValue:
+        """Command.
+
+        Returns:
+            JsonValue: The resulting command.
+        """
+        return await self.request(
+            "POST", f"/device/{device_type}/one_key", data={"user_device_id": device_id, "one_key": action}
         )
 
-    async def endpoint_action(self, device_id: str, path: str) -> Any:
-        return await self._request("POST", path, data=self._device_payload(device_id))
+    async def litter_action(self, device_id: str, action: str, data: JsonObject | None = None) -> JsonValue:
+        """Litter action.
 
-    async def litter_action(
-        self, device_id: str, action: str, data: dict[str, Any] | None = None
-    ) -> Any:
+        Returns:
+            JsonValue: The resulting litter action.
+
+        Raises:
+            NottyApiError: When the requested operation cannot be completed.
+        """
         path = LITTER_ACTION_ENDPOINTS.get(action)
         if not path:
-            raise NottyApiError(f"Unsupported litter box action: {action}")
+            msg = f"Unsupported litter box action: {action}"
+            raise NottyApiError(msg)
         payload = {**(data or {}), **self._device_payload(device_id)}
-        if action == "one_key" and "one_key" not in payload:
-            raise NottyApiError("one_key action requires a one_key value")
-        return await self._request("POST", path, data=payload)
+        if action == ACTION_ONE_KEY and ACTION_ONE_KEY not in payload:
+            msg = "one_key action requires a one_key value"
+            raise NottyApiError(msg)
+        if action == ACTION_SET_AUTO_DELAY:
+            delay = payload.get("delay")
+            if type(delay) is not int or not 1 <= delay <= MAX_DELAY_MINUTES:
+                msg = "Automatic cleaning delay must be an integer from 1 to 15 minutes"
+                raise NottyApiError(msg)
+        return await self.request("POST", path, data=payload)

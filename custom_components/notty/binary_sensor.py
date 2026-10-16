@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
+from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .entity import NottyEntity, merged_device_data, title_from_key, value_from_block
+from custom_components.notty.coordinator import NottyCoordinator
+from custom_components.notty.entity import NottyEntity, merged_device_data, title_from_key, value_from_block
+from custom_components.notty.models import DeviceBlock, DeviceData, NottyConfigEntry
 
 BINARY_KEYS = {
     "online",
@@ -35,13 +40,18 @@ IGNORED_BINARY_KEYS = {
     "is_owner",
     "show_card",
 }
-TRUE_VALUES = {True, 1, "1", "true", "True", "TRUE", "online", "on", "open", "yes"}
-BOOLEAN_VALUES = {True, False, 0, 1, "0", "1", "true", "false", "True", "False", "TRUE", "FALSE"}
+TRUE_VALUES = {True, "1", "true", "True", "TRUE", "online", "on", "open", "yes"}
+BOOLEAN_VALUES = {True, False, "0", "1", "true", "false", "True", "False", "TRUE", "FALSE"}
 BOOLEAN_PREFIXES = ("switch_", "open_")
 BOOLEAN_SUFFIXES = ("_switch",)
 
 
-def looks_boolean_key(key: str, value) -> bool:
+def looks_boolean_key(key: str, value: object) -> bool:
+    """Looks boolean key.
+
+    Returns:
+        bool: The resulting looks boolean key.
+    """
     if isinstance(value, (dict, list, set, tuple)):
         return False
     try:
@@ -52,7 +62,7 @@ def looks_boolean_key(key: str, value) -> bool:
     return key.startswith(BOOLEAN_PREFIXES) or key.endswith(BOOLEAN_SUFFIXES)
 
 
-def _binary_keys(block: dict) -> list[str]:
+def _binary_keys(block: DeviceBlock) -> list[str]:
     merged = merged_device_data(block)
     keys = set(BINARY_KEYS).intersection(merged)
     keys.update(key for key, value in merged.items() if isinstance(value, bool))
@@ -61,17 +71,19 @@ def _binary_keys(block: dict) -> list[str]:
     return sorted(keys)
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
+async def async_setup_entry(  # ruff: ignore[unused-async] -- Home Assistant requires an async callback.
+    _hass: HomeAssistant, entry: NottyConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
+) -> None:
+    """Async setup entry."""
     coordinator = entry.runtime_data
-    entities = []
+    entities: list[NottyBinary] = []
     for device_id, block in coordinator.data.items():
-        for key in _binary_keys(block):
-            entities.append(NottyBinary(coordinator, device_id, block["device"], key))
+        entities.extend(NottyBinary(coordinator, device_id, block["device"], key) for key in _binary_keys(block))
     async_add_entities(entities)
 
 
 class NottyBinary(NottyEntity, BinarySensorEntity):
-    def __init__(self, coordinator, device_id, device, key):
+    def __init__(self, coordinator: NottyCoordinator, device_id: str, device: DeviceData, key: str) -> None:
         super().__init__(coordinator, device_id, device)
         self.key = key
         self._attr_unique_id = f"{device_id}_{key}"
@@ -82,9 +94,19 @@ class NottyBinary(NottyEntity, BinarySensorEntity):
             self._attr_device_class = BinarySensorDeviceClass.LOCK
 
     @property
-    def is_on(self):
+    def is_on(self) -> bool:
+        """Is on.
+
+        Returns:
+            bool: The resulting is on.
+        """
         return value_from_block(self.block, self.key) in TRUE_VALUES
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> DeviceData | None:
+        """Extra state attributes.
+
+        Returns:
+            DeviceData | None: The resulting extra state attributes.
+        """
         return {"raw_value": value_from_block(self.block, self.key)}

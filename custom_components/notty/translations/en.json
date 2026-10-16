@@ -76,6 +76,9 @@
       },
       "garbage_bag_cycle_time": {
         "name": "Trash bag reminder interval"
+      },
+      "auto_delay": {
+        "name": "Automatic cleaning delay"
       }
     },
     "time": {

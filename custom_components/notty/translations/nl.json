@@ -28,5 +28,12 @@
       "reauth_successful": "Opnieuw aanmelden geslaagd.",
       "wrong_account": "Meld je aan met hetzelfde NOTTY-account als deze integratie."
     }
+  },
+  "entity": {
+    "select": {
+      "auto_delay": {
+        "name": "Automatische reinigingsvertraging"
+      }
+    }
   }
 }

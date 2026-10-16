@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .entity import NottyEntity
+from custom_components.notty.coordinator import NottyCoordinator
+from custom_components.notty.entity import NottyEntity
+from custom_components.notty.models import DeviceData, NottyConfigEntry
+
+SOURCE_PET = "pet"
 
 
 @dataclass(frozen=True, kw_only=True)
 class NottyButtonDescription(ButtonEntityDescription):
     device_type: str
-    one_key: Any | None = None
+    one_key: int | None = None
     endpoint: str | None = None
 
 
@@ -47,12 +52,15 @@ BUTTONS = (
 )
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
+async def async_setup_entry(  # ruff: ignore[unused-async] -- Home Assistant requires an async callback.
+    _hass: HomeAssistant, entry: NottyConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
+) -> None:
+    """Async setup entry."""
     coordinator = entry.runtime_data
-    entities = []
+    entities: list[NottyButton] = []
     for device_id, block in coordinator.data.items():
         device_type = block.get("type")
-        if block["device"].get("_notty_source") == "pet":
+        if block["device"].get("_notty_source") == SOURCE_PET:
             continue
         entities.extend(
             NottyButton(coordinator, device_id, block["device"], description)
@@ -65,22 +73,20 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class NottyButton(NottyEntity, ButtonEntity):
     entity_description: NottyButtonDescription
 
-    def __init__(self, coordinator, device_id, device, description: NottyButtonDescription):
+    def __init__(
+        self, coordinator: NottyCoordinator, device_id: str, device: DeviceData, description: NottyButtonDescription
+    ) -> None:
         super().__init__(coordinator, device_id, device)
         self.entity_description = description
         self._attr_translation_key = description.key
         self._attr_unique_id = f"{device_id}_{description.key}"
 
-    async def async_press(self):
+    async def async_press(self) -> None:
+        """Async press."""
         if self.entity_description.one_key is not None:
             await self.coordinator.api.command(
-                self.device_id,
-                self.entity_description.one_key,
-                self.entity_description.device_type,
+                self.device_id, self.entity_description.one_key, self.entity_description.device_type
             )
         elif self.entity_description.endpoint:
-            await self.coordinator.api.endpoint_action(
-                self.device_id,
-                self.entity_description.endpoint,
-            )
+            await self.coordinator.api.endpoint_action(self.device_id, self.entity_description.endpoint)
         await self.coordinator.async_request_refresh()

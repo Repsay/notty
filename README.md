@@ -35,11 +35,15 @@ Only fields returned by the account/device are exposed. The coordinator polls ev
 | Binary sensors | Connectivity, locks and reported boolean settings |
 | Buttons | Clean, level, empty, sterilize, reminder resets, weight reset and calibration |
 | Switches | Child lock and Do Not Disturb |
-| Selects | Cleaning mode, known screen languages and reminder intervals |
+| Selects | Cleaning mode, automatic cleaning delay, known screen languages and reminder intervals |
 | Time | Do Not Disturb start/end |
 | Number | Pet weight, with existing litter-box binding preserved |
 
 Pet records become separate devices linked to the litter box. They do not receive litter-box command buttons. Known sensor fields use explicit units and device classes; unknown scalar fields remain ordinary sensors. Times and schedules are not guessed to be durations, and the weight-unit enum is not a weight measurement.
+
+Automatic cleaning delay is available as a configuration select (1–15 minutes) when the device reports `auto_delay`. It is unavailable outside Auto mode, matching the app. Unknown delay values remain in the raw attributes without guessing a supported option.
+
+DND changes preserve the reported LED setting and the other time boundary. If those values are missing or invalid, the integration rejects the change instead of sending defaults. Enabling DND with identical start and end times is also rejected.
 
 Two actions are also available in **Developer tools → Actions**: `notty.litter_box_one_key` and `notty.litter_box_action`. Their schemas are in [services.yaml](custom_components/notty/services.yaml). They require the **physical `user_device_id`**, not a pet ID. Command mappings remain experimental; verify them with your own device before relying on automations.
 
@@ -90,11 +94,12 @@ Reports contain JSON paths and observed types, not values. Review reports before
 uv sync --frozen --group dev
 uv run ruff check .
 uv run ruff format --check .
+uv run mypy .
 uv run pytest --cov=custom_components.notty --cov=scripts --cov-report=term-missing
 uv run scripts/build_brand.py
 ```
 
-Tests use Home Assistant's custom-component test plugin, synthetic fixtures, and mocked HTTP/API responses. GitHub Actions runs tests, Ruff, hassfest, and the HACS validator. The committed `uv.lock` pins the development environment. The icon is original community artwork; [assets/icon.svg](assets/icon.svg) and [scripts/build_brand.py](scripts/build_brand.py) provide editable sources.
+Tests use Home Assistant's custom-component test plugin, synthetic fixtures, and mocked HTTP/API responses. GitHub Actions runs tests, Ruff, strict mypy, hassfest, and the HACS validator. Ruff checks the integration, developer scripts and tests; mypy checks the integration and developer scripts. The existing mypy test exclusion is retained. See [typing and lint policy](docs/development-checks.md) for the few framework-specific exceptions. The committed `uv.lock` pins the development environment. The icon is original community artwork; [assets/icon.svg](assets/icon.svg) and [scripts/build_brand.py](scripts/build_brand.py) provide editable sources.
 
 See [development history](docs/development-history.md) and the [live validation checklist](docs/live-validation.md). Contributions should include a minimal synthetic fixture for any new field or endpoint mapping.
 
