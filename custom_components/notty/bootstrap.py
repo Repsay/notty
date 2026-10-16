@@ -6,7 +6,16 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from custom_components.notty.api import SAFE_LITTER_ACTIONS, JsonObject, NottyApi, NottyApiError, NottyAuthError
+from custom_components.notty.api import (
+    REMINDER_CYCLE_FIELDS,
+    SAFE_LITTER_ACTIONS,
+    JsonObject,
+    NottyApi,
+    NottyApiError,
+    NottyAuthError,
+    reminder_payload,
+)
+from custom_components.notty.entity import value_from_block
 from custom_components.notty.const import (
     CONF_ACCESS_TOKEN,
     CONF_EMAIL,
@@ -83,11 +92,21 @@ def _register_services(hass: HomeAssistant) -> None:
         call_data = cast("JsonObject", call.data)
         user_device_id = str(call_data[SERVICE_DEVICE_FIELD])
         coordinator = _get_coordinator(hass, user_device_id)
+        action = str(call_data["action"])
         action_data = call_data.get("data")
         if not isinstance(action_data, dict):
             action_data = {}
+        # Keep the existing reset service convenient without guessing an interval:
+        # read it from this physical device if the caller did not provide one.
+        if action in {"reset_litter_reminder", "reset_garbage_bag_reminder"} and "cycle_time" not in action_data:
+            action_data = {
+                **action_data,
+                "cycle_time": value_from_block(coordinator.data[user_device_id], REMINDER_CYCLE_FIELDS[action]),
+            }
         try:
-            await coordinator.api.litter_action(user_device_id, str(call_data["action"]), action_data)
+            if action in REMINDER_CYCLE_FIELDS:
+                action_data = reminder_payload(action, action_data)
+            await coordinator.api.litter_action(user_device_id, action, action_data)
         except NottyApiError as err:
             raise HomeAssistantError(str(err)) from err
         await coordinator.async_request_refresh()
