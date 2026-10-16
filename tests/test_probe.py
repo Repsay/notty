@@ -12,8 +12,14 @@ from scripts.compare_datapoints import compare
 
 def probe_args(**kwargs):
     return SimpleNamespace(
-        **{"from_file": None, "output": None, "capture_raw": None,
-           "session_file": None, "device_id": [], **kwargs}
+        **{
+            "from_file": None,
+            "output": None,
+            "capture_raw": None,
+            "session_file": None,
+            "device_id": [],
+            **kwargs,
+        }
     )
 
 
@@ -29,13 +35,18 @@ async def test_session_saved_without_one_time_code_or_password(tmp_path, monkeyp
     api.login = AsyncMock(side_effect=login)
     session_file = tmp_path / "session.private.json"
     args = probe_args(session_file=session_file, output=tmp_path / "report.json")
-    with patch.object(probe.load_api, "NottyApi", return_value=api), patch.object(
-        probe, "collect", AsyncMock(return_value={"responses": {}, "errors": []})
+    with (
+        patch.object(probe.load_api, "NottyApi", return_value=api),
+        patch.object(probe, "collect", AsyncMock(return_value={"responses": {}, "errors": []})),
     ):
         assert await probe.run(args) == 0
     saved = json.loads(session_file.read_text())
-    assert saved == {"access_token": "test-token", "user_id": "test-user",
-                     "email": "test@example.test", "region_code": "NL"}
+    assert saved == {
+        "access_token": "test-token",
+        "user_id": "test-user",
+        "email": "test@example.test",
+        "region_code": "NL",
+    }
     assert session_file.stat().st_mode & 0o777 == 0o600
     api.login.assert_awaited_once()
 
@@ -44,12 +55,20 @@ async def test_saved_session_reused_without_login(tmp_path, monkeypatch):
     for key in ("NOTTY_EMAIL", "NOTTY_ACCESS_TOKEN", "NOTTY_USER_ID"):
         monkeypatch.delenv(key, raising=False)
     session_file = tmp_path / "session.private.json"
-    probe.write_json(session_file, {"email": "test@example.test", "access_token": "saved-token",
-                                    "user_id": "test-user", "region_code": "NL"})
+    probe.write_json(
+        session_file,
+        {
+            "email": "test@example.test",
+            "access_token": "saved-token",
+            "user_id": "test-user",
+            "region_code": "NL",
+        },
+    )
     api = MagicMock(token="saved-token")
     api.login = AsyncMock()
-    with patch.object(probe.load_api, "NottyApi", return_value=api) as cls, patch.object(
-        probe, "collect", AsyncMock(return_value={"responses": {}, "errors": []})
+    with (
+        patch.object(probe.load_api, "NottyApi", return_value=api) as cls,
+        patch.object(probe, "collect", AsyncMock(return_value={"responses": {}, "errors": []})),
     ):
         assert await probe.run(probe_args(session_file=session_file)) == 0
     assert cls.call_args.kwargs["token"] == "saved-token"
