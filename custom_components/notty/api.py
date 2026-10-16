@@ -13,6 +13,11 @@ import aiohttp
 HTTP_ERROR_STATUS = 400
 ACTION_ONE_KEY = "one_key"
 ACTION_SET_AUTO_DELAY = "set_auto_delay"
+ACTION_SET_ALIAS = "set_alias"
+MIN_ALIAS_UNITS = 2
+MAX_ALIAS_UNITS = 8
+
+
 PLAN_ADD = "add_plan"
 PLAN_EDIT = "edit_plan"
 PLAN_OPEN = "open_plan"
@@ -133,6 +138,28 @@ class NottyApiError(Exception):
 
 class NottyAuthError(NottyApiError):
     """Authentication failed."""
+
+
+def alias_payload(device_id: str, alias: JsonValue) -> JsonObject:
+    """Validate the physical ID and preserve the cloud alias exactly as entered.
+
+    Returns:
+        The app's two-field rename payload.
+
+    Raises:
+        NottyApiError: If the ID or the conservative alias input policy is invalid.
+    """
+    if not device_id.isascii() or not device_id.isdecimal() or int(device_id) <= 0:
+        msg = "Cloud rename requires a positive numeric physical user_device_id"
+        raise NottyApiError(msg)
+    if not isinstance(alias, str) or not alias.strip() or not alias.isprintable():
+        msg = "Cloud name must be nonblank printable text"
+        raise NottyApiError(msg)
+    units = len(alias.encode("utf-16-le")) // 2
+    if not MIN_ALIAS_UNITS <= units <= MAX_ALIAS_UNITS:
+        msg = "Cloud name must contain 2 to 8 UTF-16 units; most emoji use two units"
+        raise NottyApiError(msg)
+    return {"user_device_id": int(device_id), "alias": alias}
 
 
 def plan_id(value: JsonValue) -> str:
@@ -1246,6 +1273,14 @@ class NottyApi(NottyTimezoneApi):
             "POST", "/device/litter_box/one_key", data={"user_device_id": device_id, "one_key": one_key_value(action)}
         )
 
+    async def set_device_alias(self, device_id: str, alias: JsonValue) -> JsonValue:
+        """Rename one physical cloud device using the APK request contract.
+
+        Returns:
+            The server response; subsequent discovery establishes the reported name.
+        """
+        return await self.request("POST", "/device/set_alias", data=alias_payload(device_id, alias))
+
     async def litter_action(self, device_id: str, action: str, data: JsonObject | None = None) -> JsonValue:
         """Litter action.
 
@@ -1255,6 +1290,12 @@ class NottyApi(NottyTimezoneApi):
         Raises:
             NottyApiError: When the requested operation cannot be completed.
         """
+        if action == ACTION_SET_ALIAS:
+            if set(data or {}) != {"alias"}:
+                msg = "Cloud rename accepts only the alias field for the selected device"
+                raise NottyApiError(msg)
+            return await self.set_device_alias(device_id, (data or {}).get("alias"))
+
         if action in PLAN_ACTIONS:
             return await self.manage_litter_plan(device_id, action, data or {})
         path = LITTER_ACTION_ENDPOINTS.get(action)

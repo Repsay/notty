@@ -96,6 +96,11 @@
         "name": "Weight"
       }
     },
+    "text": {
+      "cloud_alias": {
+        "name": "Cloud name"
+      }
+    },
     "update": {
       "firmware": {
         "name": "Firmware"

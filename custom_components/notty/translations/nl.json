@@ -42,6 +42,11 @@
         "name": "Herinnering afvalzak vervangen"
       }
     },
+    "text": {
+      "cloud_alias": {
+        "name": "Cloudnaam"
+      }
+    },
     "update": {
       "firmware": {
         "name": "Firmware"

@@ -1,0 +1,12 @@
+{
+  "apk_version": "1.1.30",
+  "sha256": "3b6dc21037f2802e92233ecd9f685e76b03a79afa2d82dd52a5dfcd689a18e6a",
+  "endpoint": "/device/set_alias",
+  "payload": {"user_device_id": 123, "alias": "Cat Box"},
+  "fields": {"user_device_id": "0xcc18d0", "alias": "0xcc18f4"},
+  "post": "0xcc1918",
+  "id_closure": "0xcc1b14",
+  "text_closure": "0xc8072c",
+  "minimum_length_comparison": "0xcc183c",
+  "length_guidance": {"address": "0xcc1844", "text": "名称长度需要在在2-8之间"}
+}

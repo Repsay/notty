@@ -40,6 +40,9 @@ Start with read-only captures. This checklist is for the device owner; the autom
 
 Document the Home Assistant version, device model/firmware, account region, login method and each verified feature before describing a release as production ready.
 
+Cloud name (#20): use one physical litter box and a short test name. Compare NOTTY app and refreshed HA cloud-name readback, then restore the original name. Check the HA user display-name override and all entity IDs remain unchanged. Do not treat HTTP success without cloud readback as a confirmed rename. No live rename was performed during implementation.
+
+
 Firmware availability (#22): compare the update entity's installed/offered versions and release summary against the official app. Observe an explicit empty target versus an unavailable endpoint. If an update is performed in the official app, check that later polling reports the newly installed version. Installation and progress tracking are not implemented by this integration. Record model/firmware evidence before claiming support.
 
 For #15, use the APK-backed mapping clean=1, empty=2, level=3; the old clean=0 and sterilize=3 labels were incorrect. Validate each physical effect separately with the owner present. No stop/pause or litter-box sterilize command has been established by the inspected callers. For #19, compare Scheduled=2 and Soft stool=3 against app readback; mode changes from this integration remain blocked pending schedule prerequisites and live checks.
