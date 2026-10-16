@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
+from homeassistant.exceptions import HomeAssistantError
 
 from .entity import NottyEntity, value_from_block
 
@@ -22,11 +23,9 @@ SELECTS = (
         name="Mode",
         action="set_mode",
         field="mode",
-        value_options={
-            1: "Smart",
-            2: "Time",
-            3: "Auto",
-        },
+        # Mode 1 is verified as Auto against the owner's NOTTY app.
+        # Remaining codes are unknown: do not publish guessed mode labels.
+        value_options={1: "Auto"},
         fallback_key="lb_mode",
     ),
     NottySelectDescription(
@@ -122,6 +121,11 @@ class NottySelect(NottyEntity, SelectEntity):
         return attrs
 
     async def async_select_option(self, option: str):
+        if self.entity_description.key == "mode":
+            raise HomeAssistantError(
+                "NOTTY mode changes are disabled until remaining mode codes and "
+                "the set_mode endpoint have been verified"
+            )
         reverse = {label: value for value, label in self.entity_description.value_options.items()}
         if option not in reverse:
             return
