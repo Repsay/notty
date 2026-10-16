@@ -81,12 +81,31 @@ The NOTTY app's timezone controller refers to
 `/device/change_time_zone` (setting write; `0xcd6570`).
 
 **Owner-observed live catalog on 2026-10-16:** GET
-`/entity/get_time_zones` succeeded. Its result is a *top-level array*
-of objects, each containing `id`, `display_name`, and `offset`,
-all **strings**. This establishes field names and types, but the actual
-catalog ID semantics, example values, offset semantics, and device change
-payload remain unknown. In particular, there is no evidence that the
-`id` is an IANA identifier, or even numeric.
+`/entity/get_time_zones` succeeded and returned **141 entries** in
+a top-level array. Each entry contains `id`, `display_name`, and
+`offset`, all **strings**. An Amsterdam entry was:
+
+```json
+{
+  "id": "W. Europe Standard Time",
+  "display_name": "(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna",
+  "offset": "01:00:00"
+}
+```
+
+`id` is a **Windows timezone identifier**, not an IANA name or numeric
+code. Unicode CLDR windowsZones maps this Windows ID to `Europe/Amsterdam`
+for territory **NL** (global default `Europe/Berlin`); country context is
+therefore necessary for an exact regional IANA mapping. The catalog's
+`01:00:00` is a standard-offset label, **not evidence of a live DST offset**:
+Amsterdam is UTC+02:00 on 2026-10-16 and UTC+01:00 in winter. Do not
+use this field alone for scheduling or HA↔NOTTY conversions.
+
+The specific `/device/change_time_zone` POST method, request fields,
+and behavior are still unverified. In particular, we have *not* established
+whether the device-info `time_zone_iana` field is always IANA, Windows
+or another representation. Until resolved, `dnd_payload` continues to
+require a valid IANA timezone rather than guessing from catalog offsets.
 
 The opt-in `scripts/probe_timezones.py` performs **one read-only GET**
 and prints only schema paths, types and total entry count by default.
