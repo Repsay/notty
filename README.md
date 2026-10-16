@@ -34,7 +34,7 @@ Only fields returned by the account/device are exposed. The coordinator polls ev
 | Sensors | Litter box state, cleaning counts, pet weight/usage, event times, duration statistics, reminders and related data |
 | Binary sensors | Connectivity, locks and reported boolean settings |
 | Buttons | Clean, level, empty, sterilize, reminder resets, weight reset and calibration |
-| Switches | Child lock and Do Not Disturb |
+| Switches | Child lock, Do Not Disturb, litter-renewal reminder and trash-bag reminder |
 | Selects | Cleaning mode, automatic cleaning delay, known screen languages and reminder intervals |
 | Time | Do Not Disturb start/end |
 | Number | Pet weight, with existing litter-box binding preserved |
@@ -45,7 +45,11 @@ Automatic cleaning delay is available as a configuration select (1–15 minutes)
 
 DND changes preserve the reported LED setting and the other time boundary. If those values are missing or invalid, the integration rejects the change instead of sending defaults. Enabling DND with identical start and end times is also rejected.
 
+For physical litter boxes that report `open_litter_remind` or `open_garbagebag_remind`, the corresponding configuration switches enable or disable the reminders. Enabling preserves the reported configured interval (`default_remaining_days`: 5–30 days; `garbage_bag_cycle_time`: 2–15 days); disabling does not overwrite it. Unknown enable state or a missing/invalid interval prevents an enable request. The existing reminder-reset buttons restart a countdown and the interval selects change the configured cycle; neither is interchangeable with the new switches. These commands are currently backed by decoded app contracts and synthetic tests, **not yet verified against live reminder behavior**.
+
 Two actions are also available in **Developer tools → Actions**: `notty.litter_box_one_key` and `notty.litter_box_action`. Their schemas are in [services.yaml](custom_components/notty/services.yaml). They require the **physical `user_device_id`**, not a pet ID. Command mappings remain experimental; verify them with your own device before relying on automations.
+
+For `notty.litter_box_action`, reminder interval actions require `data.cycle_time` (the configured number of days). Reset actions also accept `data.cycle_time`; when it is omitted, the integration uses the reported configured interval for that physical litter box, and refuses the reset if no valid interval is available. Do not supply a remaining-days countdown as a substitute. Use the reminder switches to enable or disable the feature.
 
 ## Sessions and troubleshooting
 
