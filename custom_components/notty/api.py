@@ -290,12 +290,13 @@ class NottyApi:
 
         pet_devices = pet.get("pet_devices")
         if isinstance(pet_devices, list):
-            found = NottyApi._find_first(
-                pet_devices,
-                ("user_device_id", "device_id", "id", "did"),
-            )
-            if found not in (None, "", 0, "0", False):
-                return str(found)
+            for bound_device in pet_devices:
+                if not isinstance(bound_device, dict) or bound_device.get("is_bind") is False:
+                    continue
+                for key in ("user_device_id", "device_id", "id", "did"):
+                    found = bound_device.get(key)
+                    if found not in (None, "", 0, "0", False):
+                        return str(found)
         return None
 
     @staticmethod
@@ -315,7 +316,7 @@ class NottyApi:
 
     @staticmethod
     def _pet_litter_device(pet: dict[str, Any]) -> dict[str, Any] | None:
-        device_id = NottyApi._bound_litter_id(pet)
+        device_id = NottyApi._pet_litter_device_id(pet)
         has_litter_data = NottyApi._pet_has_litter_data(pet)
         pet_id = pet.get("pet_id") or pet.get("id")
         if not device_id and (not has_litter_data or pet_id in (None, "")):
@@ -674,9 +675,21 @@ class NottyApi:
         except NottyApiError as err:
             errors.append(f"/device/get_user_devices/<pet_id>: {err}")
 
+        pet_parents: dict[str, set[str]] = {}
+        for physical in discovered.values():
+            parent_id = physical.get("user_device_id")
+            if parent_id in (None, ""):
+                continue
+            for pet_id in physical.get("_notty_pet_ids") or []:
+                pet_parents.setdefault(str(pet_id), set()).add(str(parent_id))
+
         for pet in pets:
             device = self._pet_litter_device(pet)
             if device:
+                # Boolean bind_litter_box indicates a binding, but provides no device ID.
+                parents = pet_parents.get(str(device["pet_id"]), set())
+                if not device.get("_notty_litter_user_device_id") and len(parents) == 1:
+                    device["_notty_litter_user_device_id"] = next(iter(parents))
                 device_id = str(device.get("id"))
                 discovered[device_id] = {
                     **discovered.get(device_id, {}),
