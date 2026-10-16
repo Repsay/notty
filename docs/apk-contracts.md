@@ -101,11 +101,25 @@ therefore necessary for an exact regional IANA mapping. The catalog's
 Amsterdam is UTC+02:00 on 2026-10-16 and UTC+01:00 in winter. Do not
 use this field alone for scheduling or HA↔NOTTY conversions.
 
+**Owner live device inspection, also 2026-10-16:** both the account
+device listing and `/device/litter_box/get_info` returned
+`"time_zone_iana": "Europe/Amsterdam"` for the same device. This
+confirms that this device stores/reports its selected zone in **IANA**
+format even though the selection catalog uses **Windows** identifiers.
+There was no separate `time_zone_id` in either inspected response.
+Keep three concepts distinct:
+
+- **Catalog choice:** Windows ID `W. Europe Standard Time`.
+- **Configured device zone:** IANA `Europe/Amsterdam`.
+- **Home Assistant zone:** its own configurable IANA timezone; the
+  cloud's apparent Shanghai DND readback clock remains a separate
+  hypothesis requiring broader validation.
+
 The specific `/device/change_time_zone` POST method, request fields,
-and behavior are still unverified. In particular, we have *not* established
-whether the device-info `time_zone_iana` field is always IANA, Windows
-or another representation. Until resolved, `dnd_payload` continues to
-require a valid IANA timezone rather than guessing from catalog offsets.
+and behavior are still unverified. Do not assume whether the setter
+accepts the Windows ID or IANA name based on these reads. The
+integration's existing DND builder can use the verified device IANA
+readback without Windows conversion; it must not use catalog offsets.
 
 The opt-in `scripts/probe_timezones.py` performs **one read-only GET**
 and prints only schema paths, types and total entry count by default.
