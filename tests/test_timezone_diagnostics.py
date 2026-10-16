@@ -120,17 +120,23 @@ def test_catalog_lookup_reveals_only_matching_server_provided_strings() -> None:
     """The catalog ID is an opaque string; never infer an IANA identifier."""
     response = [
         {
-            "id": "europe-amsterdam-1",
-            "display_name": "Amsterdam",
-            "offset": "+02:00",
+            "id": "W. Europe Standard Time",
+            "display_name": "(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna",
+            "offset": "01:00:00",
             "ignored": SAMPLE_CATALOG_SENTINEL,
         },
-        {"id": "new-york-2", "display_name": "New York", "offset": "-04:00"},
+        {"id": "Eastern Standard Time", "display_name": "(UTC-05:00) Eastern Time", "offset": "-05:00:00"},
     ]
     result = catalog_report(response, find="Amsterdam")
     assert result["entry_count"] == EXPECTED_CATALOG_COUNT
     assert result["match_count"] == 1
-    assert result["matches"] == [{"id": "europe-amsterdam-1", "display_name": "Amsterdam", "offset": "+02:00"}]
+    assert result["matches"] == [
+        {
+            "id": "W. Europe Standard Time",
+            "display_name": "(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna",
+            "offset": "01:00:00",
+        }
+    ]
     assert result["matches_truncated"] is False
     assert SAMPLE_CATALOG_SENTINEL not in json.dumps(result)
 
