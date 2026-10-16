@@ -199,19 +199,19 @@ def test_device_timezone_fields_never_exposes_identifiers() -> None:
 async def test_device_timezone_inspection_uses_only_list_and_info_reads() -> None:
     """Distinguish the selection catalog's Windows ID from device IANA fields."""
     api = MagicMock()
-    api.devices = AsyncMock(return_value=[
-        {
-            "user_device_id": CATALOG_DEVICE_ID,
-            "time_zone_iana": LOCAL_ZONE,
-            "time_zone_id": "W. Europe Standard Time",
-            "alias": SAMPLE_CATALOG_SENTINEL,
-        }
-    ])
-    api.litter_info = AsyncMock(return_value={
-        "user_device_id": CATALOG_DEVICE_ID,
-        "time_zone_iana": LOCAL_ZONE,
-        "status_id": 1,
-    })
+    api.devices = AsyncMock(
+        return_value=[
+            {
+                "user_device_id": CATALOG_DEVICE_ID,
+                "time_zone_iana": LOCAL_ZONE,
+                "time_zone_id": "W. Europe Standard Time",
+                "alias": SAMPLE_CATALOG_SENTINEL,
+            }
+        ]
+    )
+    api.litter_info = AsyncMock(
+        return_value={"user_device_id": CATALOG_DEVICE_ID, "time_zone_iana": LOCAL_ZONE, "status_id": 1}
+    )
     result = await inspect_device_timezone(api, CATALOG_DEVICE_ID)
     assert result == {
         "device_listing": {"time_zone_iana": LOCAL_ZONE, "time_zone_id": "W. Europe Standard Time"},
