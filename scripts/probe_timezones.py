@@ -69,9 +69,7 @@ async def run(options: TimezoneProbeOptions) -> JsonObject:
         ValueError: If the capture path is unsafe or would overwrite a file.
         TypeError: If the saved session has malformed credentials.
     """
-    if options.capture_raw and (
-        not options.capture_raw.name.endswith(".private.json") or options.capture_raw.exists()
-    ):
+    if options.capture_raw and (not options.capture_raw.name.endswith(".private.json") or options.capture_raw.exists()):
         msg = "Raw capture must be a new file ending in .private.json"
         raise ValueError(msg)
     session_data = load_session(options.session_file)
@@ -82,10 +80,7 @@ async def run(options: TimezoneProbeOptions) -> JsonObject:
         raise TypeError(msg)
     async with aiohttp.ClientSession() as session:
         api = probe_datapoints.load_api.NottyApi(
-            session,
-            token=token,
-            user_id=user_id,
-            region_code=str(session_data.get("region_code") or "NL"),
+            session, token=token, user_id=user_id, region_code=str(session_data.get("region_code") or "NL")
         )
         response = await collect_catalog(api)
     if options.capture_raw:
@@ -105,7 +100,7 @@ def main() -> int:
     options = cast("TimezoneProbeOptions", parser.parse_args())
     try:
         console(json.dumps(asyncio.run(run(options)), indent=2))
-    except (probe_datapoints.load_api.NottyApiError, OSError, TypeError, ValueError):
+    except probe_datapoints.load_api.NottyApiError, OSError, TypeError, ValueError:
         console("Read-only timezone inventory failed; no device changes were attempted.", file=sys.stderr)
         return 2
     return 0
