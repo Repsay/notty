@@ -118,9 +118,7 @@ def _toilet_event_summary(
     duration_match = TOILET_DURATION_RE.search(text)
     if duration_match:
         minutes = int(duration_match.group("minutes") or 0)
-        seconds = int(
-            duration_match.group("seconds") or duration_match.group("only_seconds") or 0
-        )
+        seconds = int(duration_match.group("seconds") or duration_match.group("only_seconds") or 0)
         summary["latest_toilet_event_duration"] = minutes * 60 + seconds
     return {key: value for key, value in summary.items() if value not in (None, "")}
 
