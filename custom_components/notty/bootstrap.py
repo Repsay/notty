@@ -70,7 +70,11 @@ def _validate_litter_interval_change(coordinator: NottyCoordinator, device_id: s
     """
     block = coordinator.data[device_id]
     enabled = value_from_block(block, "open_litter_remind")
-    if not (enabled is True or (type(enabled) is int and enabled == 1) or (isinstance(enabled, str) and enabled in {"1", "true"})):
+    if not (
+        enabled is True
+        or (type(enabled) is int and enabled == 1)
+        or (isinstance(enabled, str) and enabled in {"1", "true"})
+    ):
         msg = "Litter interval changes require an enabled reminder"
         raise NottyApiError(msg)
     current_cycle = value_from_block(block, "default_remaining_days")
