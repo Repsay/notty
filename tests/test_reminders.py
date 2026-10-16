@@ -131,46 +131,60 @@ async def test_switch_preserves_interval_and_refreshes(
 
 
 @pytest.mark.parametrize("reminder", REMINDERS)
-async def test_repeated_enable_does_not_restart_reminder(
-    hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
+@pytest.mark.parametrize(("initial", "service"), [(1, "turn_on"), (0, "turn_off")])
+async def test_repeated_switch_command_does_not_restart_reminder(
+    hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder, initial: int, service: str
 ) -> None:
-    """An already enabled switch must not reset the countdown."""
+    """An unchanged switch must not restart or otherwise alter the countdown."""
     _, field, cycle_key, entity, cycle = reminder
-    runtime_api.device_info.return_value.update({field: 1, cycle_key: cycle})
+    runtime_api.device_info.return_value.update({field: initial, cycle_key: cycle})
     await setup(hass)
-    await hass.services.async_call("switch", "turn_on", {"entity_id": f"switch.test_box_{entity}"}, blocking=True)
+    await hass.services.async_call("switch", service, {"entity_id": f"switch.test_box_{entity}"}, blocking=True)
     runtime_api.litter_action.assert_not_awaited()
 
 
-async def test_enabling_requires_configured_interval(hass: HomeAssistant, runtime_api: MagicMock) -> None:
+@pytest.mark.parametrize("reminder", REMINDERS)
+async def test_enabling_requires_configured_interval(
+    hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
+) -> None:
     """A remaining-day measurement is never substituted for a missing interval."""
-    runtime_api.device_info.return_value.update(open_litter_remind=0, remaining_days=12)
+    _, field, _, entity, _ = reminder
+    runtime_api.device_info.return_value.update({field: 0, "remaining_days": 12})
     await setup(hass)
     with pytest.raises(HomeAssistantError, match="cycle_time"):
         await hass.services.async_call(
-            "switch", "turn_on", {"entity_id": "switch.test_box_litter_renewal_reminder"}, blocking=True
+            "switch", "turn_on", {"entity_id": f"switch.test_box_{entity}"}, blocking=True
         )
     runtime_api.litter_action.assert_not_awaited()
 
 
-async def test_disabling_does_not_need_or_write_interval(hass: HomeAssistant, runtime_api: MagicMock) -> None:
+@pytest.mark.parametrize("reminder", REMINDERS)
+async def test_disabling_does_not_need_or_write_interval(
+    hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
+) -> None:
     """The app's disable request contains no cycle field."""
-    runtime_api.device_info.return_value.update(open_litter_remind=1)
+    action, field, _, entity, _ = reminder
+    runtime_api.device_info.return_value.update({field: 1})
     await setup(hass)
     await hass.services.async_call(
-        "switch", "turn_off", {"entity_id": "switch.test_box_litter_renewal_reminder"}, blocking=True
+        "switch", "turn_off", {"entity_id": f"switch.test_box_{entity}"}, blocking=True
     )
-    runtime_api.litter_action.assert_awaited_once_with("box-1", "set_litter_remind", {"action": 3})
+    runtime_api.litter_action.assert_awaited_once_with("box-1", action, {"action": 3})
 
 
-async def test_unknown_state_cannot_be_written(hass: HomeAssistant, runtime_api: MagicMock) -> None:
+@pytest.mark.parametrize("reminder", REMINDERS)
+@pytest.mark.parametrize("service", ["turn_on", "turn_off"])
+async def test_unknown_state_cannot_be_written(
+    hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder, service: str
+) -> None:
     """Missing or novel enable enums are not silently treated as off."""
-    runtime_api.device_info.return_value.update(open_litter_remind=8, default_remaining_days=20)
+    _, field, cycle_key, entity, cycle = reminder
+    runtime_api.device_info.return_value.update({field: 8, cycle_key: cycle})
     await setup(hass)
-    assert hass.states.get("switch.test_box_litter_renewal_reminder").state == EXPECTED_UNKNOWN
+    assert hass.states.get(f"switch.test_box_{entity}").state == EXPECTED_UNKNOWN
     with pytest.raises(HomeAssistantError, match="unknown current state"):
         await hass.services.async_call(
-            "switch", "turn_on", {"entity_id": "switch.test_box_litter_renewal_reminder"}, blocking=True
+            "switch", service, {"entity_id": f"switch.test_box_{entity}"}, blocking=True
         )
     runtime_api.litter_action.assert_not_awaited()
 
@@ -200,3 +214,60 @@ async def test_unsupported_device_has_no_reminder_switch(hass: HomeAssistant) ->
     await setup(hass)
     assert hass.states.get("switch.test_box_litter_renewal_reminder") is None
     assert hass.states.get("switch.test_box_trash_bag_reminder") is None
+
+
+@pytest.mark.parametrize("reminder", REMINDERS)
+async def test_generic_reset_service_uses_current_interval_when_omitted(
+    hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
+) -> None:
+    """Existing reset service calls obtain the interval from the physical device."""
+    action, _, cycle_key, _, cycle = reminder
+    reset_action = "reset_litter_reminder" if action == ACTION_LITTER else "reset_garbage_bag_reminder"
+    runtime_api.device_info.return_value[cycle_key] = cycle
+    await setup(hass)
+    await hass.services.async_call(
+        "notty",
+        "litter_box_action",
+        {"user_device_id": "box-1", "action": reset_action},
+        blocking=True,
+    )
+    runtime_api.litter_action.assert_awaited_once_with(
+        "box-1", reset_action, {"action": 2, "cycle_time": cycle}
+    )
+
+
+@pytest.mark.parametrize("reminder", REMINDERS)
+async def test_generic_reset_service_rejects_missing_interval(
+    hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
+) -> None:
+    """Do not turn the remaining-day counter into a guessed configured cycle."""
+    action, _, _, _, _ = reminder
+    reset_action = "reset_litter_reminder" if action == ACTION_LITTER else "reset_garbage_bag_reminder"
+    runtime_api.device_info.return_value["remaining_days"] = 12
+    await setup(hass)
+    with pytest.raises(HomeAssistantError, match="cycle_time"):
+        await hass.services.async_call(
+            "notty",
+            "litter_box_action",
+            {"user_device_id": "box-1", "action": reset_action},
+            blocking=True,
+        )
+    runtime_api.litter_action.assert_not_awaited()
+
+
+@pytest.mark.parametrize("reminder", REMINDERS)
+async def test_generic_interval_service_rejects_out_of_range_value(
+    hass: HomeAssistant, runtime_api: MagicMock, reminder: Reminder
+) -> None:
+    """Invalid interval writes are rejected at the HA service boundary."""
+    action, _, _, _, _ = reminder
+    set_action = "set_litter_reminder_days" if action == ACTION_LITTER else "set_garbage_bag_reminder_days"
+    await setup(hass)
+    with pytest.raises(HomeAssistantError, match="cycle_time"):
+        await hass.services.async_call(
+            "notty",
+            "litter_box_action",
+            {"user_device_id": "box-1", "action": set_action, "data": {"cycle_time": 100}},
+            blocking=True,
+        )
+    runtime_api.litter_action.assert_not_awaited()
