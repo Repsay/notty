@@ -94,8 +94,7 @@ def catalog_report(response: JsonValue, *, find: str | None = None) -> JsonObjec
             msg = "Timezone search must contain at least three characters"
             raise ValueError(msg)
         matches = [
-            entry for entry in entries
-            if any(term in str(entry[field]).casefold() for field in ("id", "display_name"))
+            entry for entry in entries if any(term in str(entry[field]).casefold() for field in ("id", "display_name"))
         ]
         report.update({
             "match_count": len(matches),
