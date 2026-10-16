@@ -180,7 +180,7 @@ def timezone_context(value: JsonValue, ha_zone: str, *, at: datetime | None = No
     try:
         device_tz = ZoneInfo(value)
         home_tz = ZoneInfo(ha_zone)
-    except (KeyError, ValueError, ZoneInfoNotFoundError):
+    except KeyError, ValueError, ZoneInfoNotFoundError:
         return context
     now = at or datetime.now(UTC)
     if now.tzinfo is None or now.utcoffset() is None:
