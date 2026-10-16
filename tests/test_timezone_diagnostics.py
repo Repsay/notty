@@ -11,7 +11,13 @@ import pytest
 
 from custom_components.notty.coordinator import NOTTY_SERVER_TIME_ZONE
 from custom_components.notty.sensor import FIELD_DEVICE_TIME_ZONE, sensor_keys, timezone_context
-from scripts.probe_timezones import MAX_MATCHES, TIME_ZONE_CATALOG_PATH, catalog_entries, catalog_report, collect_catalog
+from scripts.probe_timezones import (
+    MAX_MATCHES,
+    TIME_ZONE_CATALOG_PATH,
+    catalog_entries,
+    catalog_report,
+    collect_catalog,
+)
 from tests.test_lifecycle import setup
 
 LOCAL_ZONE = "Europe/Amsterdam"
