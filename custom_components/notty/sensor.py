@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import math
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -78,6 +79,8 @@ NON_LITTER_PREFIXES = (
 )
 
 WEIGHT_KEYS = {"today_weight", "yesterday_weight", "total_weight", "weight"}
+POUNDS_TO_KILOGRAMS = 0.45359237
+WEIGHT_UNIT_FACTORS: dict[str | None, float] = {"kg": 1.0, "lb": POUNDS_TO_KILOGRAMS}
 TIMESTAMP_KEYS = {
     "latest_message_date_created",
     "messages_date_created",
@@ -313,10 +316,23 @@ async def async_setup_entry(  # ruff: ignore[unused-async] -- Home Assistant req
 ) -> None:
     """Async setup entry."""
     coordinator = entry.runtime_data
-    entities: list[NottySensor] = []
-    for device_id, block in coordinator.data.items():
-        entities.extend(NottySensor(coordinator, device_id, block["device"], key) for key in sensor_keys(block))
-    async_add_entities(entities)
+    known: set[tuple[str, str]] = set()
+
+    def discover() -> None:
+        """Discover recovered optional fields without duplicating existing entities."""
+        entities: list[NottySensor] = []
+        for device_id, block in coordinator.data.items():
+            keys = set(sensor_keys(block))
+            keys.update((WEIGHT_KEYS - SKIP_KEYS).intersection(merged_device_data(block)))
+            for key in sorted(keys):
+                if (device_id, key) not in known:
+                    entities.append(NottySensor(coordinator, device_id, block["device"], key))
+                    known.add((device_id, key))
+        if entities:
+            async_add_entities(entities)
+
+    discover()
+    entry.async_on_unload(coordinator.async_add_listener(discover))
 
 
 class NottySensor(NottyEntity, SensorEntity):
@@ -329,6 +345,12 @@ class NottySensor(NottyEntity, SensorEntity):
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
         raw_value = value_from_block(self.block, self.key)
         device_class, unit, state_class = sensor_metadata(key, raw_value)
+        if key in WEIGHT_KEYS:
+            device_class, unit, state_class = (
+                SensorDeviceClass.WEIGHT,
+                UnitOfMass.KILOGRAMS,
+                SensorStateClass.MEASUREMENT,
+            )
         if device_class is not None:
             self._attr_device_class = device_class
         if unit is not None:
@@ -344,6 +366,8 @@ class NottySensor(NottyEntity, SensorEntity):
             StateType | datetime: The resulting native value.
         """
         raw_value = value_from_block(self.block, self.key)
+        if self.key in WEIGHT_KEYS:
+            return self._weight_in_kilograms(raw_value)
         timestamp_value = _parse_timestamp_value(raw_value)
         if timestamp_value is not None and (
             DATETIME_FIELD_FRAGMENT in self.key or self.key in {"latest_message_date_created", "messages_date_created"}
@@ -354,6 +378,24 @@ class NottySensor(NottyEntity, SensorEntity):
         value = _number_or_original(raw_value)
         return value if isinstance(value, (str, int, float)) else None
 
+    def _weight_in_kilograms(self, raw_value: JsonValue) -> float | None:
+        value = _number_or_original(raw_value)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        try:
+            finite = math.isfinite(value)
+        except OverflowError:
+            return None
+        if not finite or value <= 0:
+            return None
+        unit = self._reported_weight_unit()
+        factor = WEIGHT_UNIT_FACTORS.get(unit)
+        return float(value) * factor if factor is not None else None
+
+    def _reported_weight_unit(self) -> str | None:
+        raw = value_from_block(self.block, "weight_unit")
+        return None if isinstance(raw, bool | float) else _enum_value("weight_unit", raw)
+
     @property
     def extra_state_attributes(self) -> DeviceData | None:
         """Extra state attributes.
@@ -361,7 +403,17 @@ class NottySensor(NottyEntity, SensorEntity):
         Returns:
             DeviceData | None: The resulting extra state attributes.
         """
-        attributes = {}
+        attributes: DeviceData = {}
+        if self.key in WEIGHT_KEYS:
+            attributes.update({
+                "source_field": self.key,
+                "reported_unit": self._reported_weight_unit(),
+                "measurement_time": None,
+                "measurement_freshness": "not_reported",
+                "measurement_source": "cloud_daily_summary"
+                if self.key in {"today_weight", "yesterday_weight"}
+                else "cloud_reported_weight",
+            })
         if self.key == FIELD_DEVICE_TIME_ZONE:
             attributes.update(
                 timezone_context(value_from_block(self.block, self.key), self.coordinator.hass.config.time_zone)

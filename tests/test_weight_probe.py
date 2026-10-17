@@ -13,7 +13,7 @@ from custom_components.notty.api import JsonObject, JsonValue
 from scripts import probe_datapoints, probe_weights, weight_report
 
 PRIVATE_MODE = 0o600
-EXPECTED_ENUM = "unverified_enum"
+EXPECTED_ENUM = "apk_enum"
 EXPECTED_SETTING = "profile_setting"
 GET = "GET"
 FIELD_VALUE = "reported_value"
@@ -21,6 +21,7 @@ SERIES_COUNT = 2
 EXPECTED_DETAIL_PATH = "/device/litter_box/pet_data_detail/123?pet_id=7"
 FORBIDDEN_PATH_PARTS = ("pet_id=8", "pet_id=99", "/456")
 PRIVATE_MARKER = "secret-token"
+ANALYSIS_TIME = "analysed_at"
 
 
 def capture() -> JsonObject:
@@ -54,7 +55,8 @@ def capture() -> JsonObject:
 def test_report_separates_profile_and_candidate_without_leaking_values() -> None:
     """Default reports keep personal keys, names, measurements and IDs private."""
     result = weight_report.report(capture())
-    text = json.dumps(result)
+    # The analysis clock is public metadata and may coincide with a fixture date.
+    text = json.dumps({key: value for key, value in result.items() if key != ANALYSIS_TIME})
     for secret in ("Secret cat", "private-person-key", "4.8", "4.1", "2026-10-17", "08:00", "pet:7", "box:123"):
         assert secret not in text
     sources = result["sources"]

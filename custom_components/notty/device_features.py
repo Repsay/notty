@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from custom_components.notty.api import JsonObject, JsonValue, NottyApi, NottyApiError, plan_enabled
 from custom_components.notty.feature_contracts import identifier, object_rows, true_state
 
@@ -97,7 +99,13 @@ class FirmwareApi:
     def __init__(self, api: NottyApi) -> None:
         self.api = api
 
-    async def install(self, device_id: str, version: str | None = None) -> str:
+    async def install(
+        self,
+        device_id: str,
+        version: str | None = None,
+        *,
+        before_confirm: Callable[[str, JsonObject], Awaitable[None]] | None = None,
+    ) -> str:
         """Confirm only the currently offered task for an owned litter box.
 
         Returns:
@@ -125,6 +133,8 @@ class FirmwareApi:
         if not firmware_task_id(task) or not isinstance(status, str) or status not in FIRMWARE_IDLE_STATUSES:
             msg = "Firmware task is absent, busy or has an unknown status"
             raise NottyApiError(msg)
+        if before_confirm is not None:
+            await before_confirm(target, current)
         await self.api.request(
             "POST", "/device/confirm_upgrade", data={"user_device_id": identifier(device_id), "task_id": task}
         )

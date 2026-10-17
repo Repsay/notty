@@ -254,8 +254,7 @@ restarting the script, pass `--target-version EXACT_PREVIOUS_TARGET` and a new
 output directory. Only matching installed-version readback confirms completion;
 a success status alone does not. A failure from a different offered target is
 not attributed to the selected update. No firmware is installed by this monitor,
-no percentage is inferred, and this does not add restart persistence or realtime
-firmware-event subscriptions to HA itself. On the owner's current device there
+no percentage is inferred. HA now separately persists its own requested task across restarts; the APK's native JPush firmware-event transport is not subscribed to by HA. On the owner's current device there
 is no offered firmware update, so installation/failure lifecycle validation needs
 a future offer.
 
@@ -270,3 +269,9 @@ roundtrips do not assert that it occurred.
 Completed implementation tickets link to [#42](https://github.com/Repsay/notty/issues/42)
 for their remaining external acceptance checks. #21, #22 and #41 retain the
 specific timezone, firmware and measured-weight work. Emptying is excluded.
+
+
+The live timezone contract was corrected after this guide was originally written.
+Changes now require `iana_time_zone` in addition to the catalog ID. See
+[remaining-validation.md](remaining-validation.md) before changing timezones; it
+also documents DND preservation and the separate DST observation script.

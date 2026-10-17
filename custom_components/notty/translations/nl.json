@@ -169,6 +169,30 @@
           "name": "Onomkeerbaar wissen bevestigen"
         }
       }
+    },
+    "device_time_zone": {
+      "name": "Tijdzone van apparaat",
+      "description": "Kies een servercatalogus-ID en een geldige IANA-tijdzone. Controleer de teruggelezen gegevens en de app. Het behouden van lokale niet-storen-tijden vereist een extra schrijfactie.",
+      "fields": {
+        "user_device_id": {
+          "name": "Fysiek apparaat-ID"
+        },
+        "operation": {
+          "name": "Bewerking"
+        },
+        "catalog_id": {
+          "name": "Servercatalogus-ID"
+        },
+        "iana_time_zone": {
+          "name": "IANA-tijdzone"
+        },
+        "preserve_dnd_local_times": {
+          "name": "Lokale niet-storen-tijden behouden"
+        },
+        "confirm_schedule_change": {
+          "name": "Schemawijzigingen bevestigen"
+        }
+      }
     }
   }
 }

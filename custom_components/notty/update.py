@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from typing import override
 
 from homeassistant.components.update import UpdateDeviceClass, UpdateEntity, UpdateEntityFeature
@@ -9,6 +10,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.storage import Store
 
 from custom_components.notty.api import JsonObject, JsonValue, NottyApiError
 from custom_components.notty.coordinator import NottyCoordinator
@@ -85,7 +87,60 @@ class NottyFirmwareUpdate(NottyEntity, UpdateEntity):
         super().__init__(coordinator, device_id, device)
         self._attr_unique_id = f"{device_id}_firmware"
         self._requested_version: str | None = None
+        self._requested_task: JsonValue = None
+        self._request_baseline: JsonObject = {}
         self._installing = False
+        identity = sha256(device_id.encode()).hexdigest()
+        self._request_store: Store[JsonObject] = Store(
+            coordinator.hass, 1, f"notty.{coordinator.entry_id}.{identity}.firmware"
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Recover the pending task without repeating its installation request."""
+        saved = await self._request_store.async_load()
+        if isinstance(saved, dict):
+            target, task = saved.get("target"), saved.get("task")
+            if firmware_version(target) is not None and firmware_task_id(task):
+                self._requested_version = firmware_version(target)
+                self._requested_task = task
+                baseline = saved.get("baseline")
+                self._request_baseline = baseline if isinstance(baseline, dict) else {}
+        await super().async_added_to_hass()
+        self._reconcile_request()
+
+    def _saved_request(self) -> JsonObject:
+        return {"target": self._requested_version, "task": self._requested_task, "baseline": self._request_baseline}
+
+    async def _remember_request(self, target: str, metadata: JsonObject) -> None:
+        # Persist before the POST: a timeout may still mean the device accepted it.
+        task = metadata.get("task_id")
+        baseline = {key: metadata.get(key) for key in ("task_status", "utc_modified")}
+        await self._request_store.async_save({"target": target, "task": task, "baseline": baseline})
+        self._requested_version, self._requested_task, self._request_baseline = target, task, baseline
+
+    def _reconcile_request(self) -> None:
+        if self._requested_version is None or not self.available:
+            return
+        metadata = firmware_data(self.block)
+        same_task = (
+            type(metadata.get("task_id")) is type(self._requested_task)
+            and metadata.get("task_id") == self._requested_task
+            and metadata.get("dest_version") == self._requested_version
+        )
+        status = metadata.get("task_status")
+        changed = any(metadata.get(key) != value for key, value in self._request_baseline.items())
+        failed = same_task and changed and isinstance(status, str) and status in {"FAILED", "CANCELED"}
+        if self.installed_version == self._requested_version or failed:
+            self._requested_version, self._requested_task = None, None
+            self._request_baseline = {}
+            self._request_store.async_delay_save(self._saved_request, 0)
+        elif same_task and changed and self._request_baseline != {"task_status": None, "utc_modified": None}:
+            self._request_baseline = {"task_status": None, "utc_modified": None}
+            self._request_store.async_delay_save(self._saved_request, 0)
+
+    def _handle_coordinator_update(self) -> None:
+        self._reconcile_request()
+        super()._handle_coordinator_update()
 
     @property
     def supported_features(self) -> UpdateEntityFeature:
@@ -94,7 +149,9 @@ class NottyFirmwareUpdate(NottyEntity, UpdateEntity):
         Returns:
             Full notes, plus install/progress when a current task is available.
         """
-        features = UpdateEntityFeature.RELEASE_NOTES
+        features = UpdateEntityFeature.RELEASE_NOTES | UpdateEntityFeature.PROGRESS
+        if self._requested_version is not None or self._installing:
+            return features
         metadata = firmware_data(self.block)
         status = metadata.get("task_status")
         if (
@@ -123,8 +180,14 @@ class NottyFirmwareUpdate(NottyEntity, UpdateEntity):
             return False if isinstance(status, str) and status in FIRMWARE_IDLE_STATUSES else None
         if self.installed_version == self._requested_version:
             return False
-        status = firmware_data(self.block).get("task_status")
-        return not (isinstance(status, str) and status in {"FAILED", "CANCELED"})
+        metadata = firmware_data(self.block)
+        if (
+            type(metadata.get("task_id")) is not type(self._requested_task)
+            or metadata.get("task_id") != self._requested_task
+            or metadata.get("dest_version") != self._requested_version
+        ):
+            return None
+        return True
 
     async def async_install(self, version: str | None, backup: bool, **_kwargs: object) -> None:  # ruff: ignore[boolean-type-hint-positional-argument] -- Home Assistant defines this positional callback signature.
         """Confirm the current offered task once, then rely on version readback.
@@ -132,13 +195,15 @@ class NottyFirmwareUpdate(NottyEntity, UpdateEntity):
         Raises:
             HomeAssistantError: If unavailable, already running, backup requested or the API rejects the task.
         """
-        if backup or not self.available or self.in_progress:
+        if backup or not self.available or self._installing or self._requested_version is not None:
             msg = "NOTTY firmware installation requires an available idle device and does not support backup"
             raise HomeAssistantError(msg)
         self._installing = True
         self.async_write_ha_state()
         try:
-            self._requested_version = await FirmwareApi(self.coordinator.api).install(self.device_id, version)
+            await FirmwareApi(self.coordinator.api).install(
+                self.device_id, version, before_confirm=self._remember_request
+            )
         except NottyApiError as exc:
             raise HomeAssistantError(str(exc)) from exc
         finally:
@@ -207,7 +272,10 @@ class NottyFirmwareUpdate(NottyEntity, UpdateEntity):
             Only the reported task-status string, without task IDs or arbitrary response fields.
         """
         status = firmware_data(self.block).get("task_status")
-        return {"task_status": status} if isinstance(status, str) else None
+        attributes: DeviceData = {"requested_version": self._requested_version}
+        if isinstance(status, str):
+            attributes["task_status"] = status
+        return attributes
 
     @override
     def version_is_newer(self, latest_version: str, installed_version: str) -> bool:

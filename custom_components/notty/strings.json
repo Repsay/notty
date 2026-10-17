@@ -250,6 +250,30 @@
           "name": "Confirm irreversible deletion"
         }
       }
+    },
+    "device_time_zone": {
+      "name": "Device time zone",
+      "description": "Choose a server catalog ID and a valid IANA time zone. Inspect readback and the app. Preserving local DND clocks requires an additional settings write.",
+      "fields": {
+        "user_device_id": {
+          "name": "Physical device ID"
+        },
+        "operation": {
+          "name": "Operation"
+        },
+        "catalog_id": {
+          "name": "Server catalog ID"
+        },
+        "iana_time_zone": {
+          "name": "IANA time zone"
+        },
+        "preserve_dnd_local_times": {
+          "name": "Preserve local DND clocks"
+        },
+        "confirm_schedule_change": {
+          "name": "Confirm schedule changes"
+        }
+      }
     }
   }
 }

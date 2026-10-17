@@ -1,5 +1,7 @@
 # APK-backed API contracts
 
+**Live correction (17 October 2026):** The timezone setter assumption below was disproved by live testing. The backend stores the supplied Windows string as an invalid IANA value. Changes now require an explicit valid IANA name and verify both fields. See [remaining-validation.md](remaining-validation.md) for the corrected contract and opt-in DND preservation.
+
 These contracts were traced in NOTTY Smart Pet 1.1.30 (SHA-256
 `3b6dc21037f2802e92233ecd9f685e76b03a79afa2d82dd52a5dfcd689a18e6a`).
 Addresses refer to Blutter's ARM64 annotated assembly. APK inputs and decoded
