@@ -12,6 +12,7 @@ import pytest
 
 from custom_components.notty.api import JsonObject, JsonValue, NottyApi, NottyApiError
 from scripts import app_actions, app_validation
+from scripts.app_validation import timezone_write_readback
 from scripts.probe_datapoints import write_json
 
 EXPECTED_MATCH = "matches_supplied_phone_app_values"
@@ -193,3 +194,19 @@ async def test_child_lock_rejects_non_app_switch_encodings(switch: JsonValue) ->
     with pytest.raises(NottyApiError, match="integer switch"):
         await api.litter_action("123", "set_key", {"switch": switch})
     api.request.assert_not_awaited()
+
+
+@pytest.mark.parametrize("preservation", ["local_clock_mismatch", "not_requested"])
+def test_timezone_preservation_failure_cannot_pass(preservation: str) -> None:
+    """A valid timezone does not hide a failed requested DND preservation."""
+    changes = {"catalog_id": "GMT Standard Time", "iana_time_zone": "Europe/London", "preserve_dnd_local_times": True}
+    capture = {
+        "operation_result": {
+            "status": "write_acknowledged_verify_in_app",
+            "dnd_preservation": preservation,
+            "after": {"settings": {}},
+        }
+    }
+    data = {"info": {"time_zone_windows": "GMT Standard Time", "time_zone_iana": "Europe/London"}}
+    expected = "mismatch"
+    assert timezone_write_readback(capture, data, changes) == expected

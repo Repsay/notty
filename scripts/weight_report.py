@@ -49,6 +49,8 @@ STRUCTURE_FIELDS = {
 }
 PROFILE = "profile"
 FIELD_WEIGHT = "weight"
+FIELD_WEIGHT_UNIT = "weight_unit"
+APK_WEIGHT_UNITS = {1: "kg", 2: "lb"}
 MAX_FINDINGS = 500
 MAX_DEPTH = 16
 CAPTURE_VERSION = 1
@@ -84,6 +86,9 @@ def unit_evidence(row: JsonObject) -> JsonObject:
         if isinstance(value, str) and value.strip().lower() in {"kg", "lb", "lbs", "g"}:
             return {"field": key, "reported": value.strip().lower(), "status": "explicit_text"}
         if type(value) is int or (isinstance(value, str) and value.isascii() and value.isdecimal()):
+            code = int(value)
+            if key == FIELD_WEIGHT_UNIT and code in APK_WEIGHT_UNITS:
+                return {"field": key, "reported": value, "unit": APK_WEIGHT_UNITS[code], "status": "apk_enum"}
             return {"field": key, "reported": value, "status": "unverified_enum"}
     return {"status": "missing_or_unknown"}
 
@@ -260,7 +265,7 @@ def report(capture: JsonObject, *, show_values: bool = False, before: JsonObject
         "limitations": [
             "All device/pet weight fields are candidates until compared with the official app after a normal visit.",
             "Profile weight is an editable setting, not evidence of a litter-box measurement.",
-            "Numeric unit codes are not converted; verify the enum against APK and app settings.",
+            "Profile weight_unit 1=kg and 2=lb follows the APK; other numeric unit fields remain unverified.",
             "Timestamps are reported as supplied; their timezone and meaning are unverified.",
             "Historical response rows are not imported into Home Assistant history.",
         ],

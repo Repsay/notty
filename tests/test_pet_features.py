@@ -122,6 +122,9 @@ def test_profile_payload_preserves_only_bound_devices_and_original_values() -> N
         {"pet_id": 8},
         {"weight": float("nan")},
         {"weight": 0},
+        {"weight_unit": 0},
+        {"weight_unit": True},
+        {"weight_unit": 3},
         {"pet_devices": None},
         {"pet_devices": [{"user_device_id": 123}]},
     ],
@@ -305,3 +308,11 @@ async def test_shared_pet_cannot_create_a_memo() -> None:
     with pytest.raises(NottyApiError, match="owner"):
         await MemoApi(api).save(PET_ID, {"title": "Visit", "content": "Visit", "date": MEMO["date"]})
     assert all(call.args[0] == METHOD_GET for call in api.request.await_args_list)
+
+
+def test_profile_edit_preserves_pound_unit() -> None:
+    """The APK labels unit 2 as lb and sends the same enum on save."""
+    profile = {**PROFILE, "weight_unit": 2, "weight": 10.0}
+    result = profile_payload(PET_ID, profile, {"name": NEW_NAME})
+    assert result["weight_unit"] == profile["weight_unit"]
+    assert result["weight"] == profile["weight"]

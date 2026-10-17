@@ -20,6 +20,14 @@ device_time_zone:
         or numeric offset.
       selector:
         text: null
+    iana_time_zone:
+      description: Explicit valid IANA name, such as Europe/Amsterdam. The backend stores Windows names incorrectly in this field; catalog membership alone is insufficient.
+      selector:
+        text: null
+    preserve_dnd_local_times:
+      description: Preserve the original device-local DND clocks, switch and LED with an additional settings write after changing timezone. Inspect the readback response.
+      selector:
+        boolean: null
     confirm_schedule_change:
       description: Required true for change, acknowledging that scheduled operations use the selected device local time.
       selector:

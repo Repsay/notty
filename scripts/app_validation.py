@@ -68,6 +68,9 @@ FEATURE_FIELDS = {
 PET_FEATURES = {"pets", "associations", "memos"}
 ACCOUNT_FEATURES = {"login", "notifications"}
 SOURCE_INFO = "info"
+FEATURE_TIMEZONE = "timezone"
+UNCHANGED = "unchanged"
+DND_LOCAL_MATCH = "local_clocks_match"
 FIELD_CHECKS = "checks"
 MISMATCH = "mismatch"
 PENDING = "pending"
@@ -376,7 +379,7 @@ async def execute(
     }
     result["write_status"] = "attempted"
     try:
-        await app_actions.apply(api, feature, target, operation, changes)
+        result["operation_result"] = await app_actions.apply(api, feature, target, operation, changes)
         result["write_status"] = "acknowledged_not_physically_verified"
         data, after_errors = await read_until_applied(api, feature, target, request, options)
         result.update({"data": data, "errors": after_errors, "captured_at": datetime.now(UTC).isoformat()})
@@ -464,6 +467,7 @@ def main(feature: str) -> int:
     status = comparison.get("status") if isinstance(comparison, dict) else None
     if (
         result["failed_reads"]
+        or result["api_write_readback"] == MISMATCH
         or status == MISMATCH
         or result["restore_status"] not in {"not_requested", "readback_matches_baseline"}
     ):
@@ -522,11 +526,39 @@ def write_readback(feature: str, capture: JsonObject, data: JsonObject) -> str:
     operation, changes = request.get("operation"), request.get("changes")
     if not isinstance(operation, str) or not isinstance(changes, dict):
         return "unreadable_request"
+    if feature == FEATURE_TIMEZONE:
+        return timezone_write_readback(capture, data, changes)
     try:
         actual = app_actions.restore_request(feature, operation, changes, data)
     except NottyApiError:
         return "not_interpreted_verify_in_app"
     return "match" if actual == (operation, changes) else MISMATCH
+
+
+def timezone_write_readback(capture: JsonObject, data: JsonObject, changes: JsonObject) -> str:
+    """Check both timezone encodings and retain partial DND-preservation failures.
+
+    Returns:
+        Match only for the requested zone and any explicitly requested preservation.
+    """
+    info = data.get("info")
+    if not isinstance(info, dict):
+        return MISMATCH
+    if info.get("time_zone_iana") != changes.get("iana_time_zone") or info.get("time_zone_windows") != changes.get(
+        "catalog_id"
+    ):
+        return MISMATCH
+    outcome = capture.get("operation_result")
+    if not isinstance(outcome, dict) or outcome.get("status") not in {"unchanged", "write_acknowledged_verify_in_app"}:
+        return MISMATCH
+    if changes.get("preserve_dnd_local_times") is True and outcome.get("status") != UNCHANGED:
+        after = outcome.get("after")
+        settings = after.get("settings") if isinstance(after, dict) else None
+        if outcome.get("dnd_preservation") != DND_LOCAL_MATCH or not isinstance(settings, dict):
+            return MISMATCH
+        if any(info.get(key) != settings.get(key) for key in ("switch_dnd", "dnd_begin_time", "dnd_end_time", "led")):
+            return MISMATCH
+    return "match"
 
 
 async def read_until_applied(

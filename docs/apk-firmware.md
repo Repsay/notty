@@ -74,3 +74,10 @@ discovery, offline devices, lifecycle, bounded notes, exact confirmation payload
 They do not verify production API payloads or device firmware behavior. No model
 has yet been validated for this new entity; no firmware update or cloud write was
 performed during development. #22 remains open for model validation and the separate realtime progress lifecycle. The HA entity tracks only its own requested target in memory until installed-version readback or a reported failure/cancellation; no measured percentage or restart persistence is claimed.
+
+
+## Follow-up: restart persistence and native push
+
+The previous in-memory-only limitation is superseded by persistent task tracking.
+The native event transport was traced to Android JPush, rather than a verified
+HA-compatible socket. See [remaining-validation.md](remaining-validation.md).

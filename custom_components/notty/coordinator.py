@@ -586,8 +586,12 @@ class NottyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "litter_user_device_id": device.get("_notty_litter_user_device_id"),
             "_notty_related": related,
         }
-        _merge_scalar_fields(info, device)
         related_info = related.get("info")
+        # Current profile readings take precedence over discovery summaries.
+        # Missing daily readings/units must not revive an older discovery value.
+        for field in ("today_weight", "yesterday_weight", "weight_unit"):
+            if field in device or (isinstance(related_info, dict) and field in related_info):
+                info[field] = related_info.get(field) if isinstance(related_info, dict) else None
         if isinstance(related_info, dict):
             pet_devices = related_info.get("pet_devices")
             if isinstance(pet_devices, list):

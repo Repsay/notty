@@ -8,7 +8,15 @@ from typing import cast
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.notty.api import JsonObject, JsonValue, NottyApi, NottyApiError
+from custom_components.notty.api import (
+    JsonObject,
+    JsonValue,
+    NottyApi,
+    NottyApiError,
+    dnd_local_time,
+    dnd_payload,
+    validated_iana_zone,
+)
 from custom_components.notty.const import DOMAIN
 from custom_components.notty.coordinator import NOTTY_SERVER_TIME_ZONE, NottyCoordinator
 from custom_components.notty.validation import vol
@@ -55,35 +63,90 @@ def timezone_change_fields(fields: JsonObject) -> str:
     Raises:
         NottyApiError: If fields are missing, extra or invalid.
     """
-    if set(fields) != {"catalog_id", "confirm_schedule_change"} or fields.get("confirm_schedule_change") is not True:
-        msg = "Timezone changes require catalog_id and confirm_schedule_change: true"
+    required = {"catalog_id", "iana_time_zone", "confirm_schedule_change"}
+    if not required <= fields.keys() or fields.keys() - required - {"preserve_dnd_local_times"}:
+        msg = "Timezone changes require catalog_id, iana_time_zone and confirm_schedule_change: true"
+        raise NottyApiError(msg)
+    if (
+        fields.get("confirm_schedule_change") is not True
+        or type(fields.get("preserve_dnd_local_times", False)) is not bool
+    ):
+        msg = "Timezone acknowledgement and preservation must be Booleans"
         raise NottyApiError(msg)
     identifier = fields["catalog_id"]
     if not isinstance(identifier, str) or not identifier.strip():
         msg = "Choose an exact string ID from the NOTTY catalog"
         raise NottyApiError(msg)
+    zone = fields["iana_time_zone"]
+    if not isinstance(zone, str):
+        msg = "Choose an explicit IANA timezone name"
+        raise NottyApiError(msg)
+    validated_iana_zone(zone)
     return identifier
 
 
+def _local_dnd(snapshot: JsonObject) -> JsonObject:
+    settings, zone = snapshot.get("settings"), snapshot.get("reported_iana")
+    if not isinstance(settings, dict) or not isinstance(zone, str):
+        msg = "DND preservation needs readable settings and a valid device IANA zone"
+        raise NottyApiError(msg)
+    dnd_payload({**settings, "time_zone_iana": zone})
+    return {
+        key: dnd_local_time(settings.get(key), zone).strftime("%H:%M") for key in ("dnd_begin_time", "dnd_end_time")
+    }
+
+
+async def _preserve_dnd(api: NottyApi, device_id: str, before: JsonObject, after: JsonObject) -> JsonObject:
+    settings = before.get("settings")
+    if not isinstance(settings, dict):
+        msg = "DND preservation requires the original settings"
+        raise NottyApiError(msg)
+    local = _local_dnd(before)
+    current = {**settings, "time_zone_iana": after.get("reported_iana")}
+    # The API can shift its raw DND fields on timezone changes. Preserve the
+    # owner's original local wall clocks, flags and LED with one explicit write.
+    await api.litter_action(
+        device_id,
+        "set_dnd",
+        dnd_payload(current, dnd_begin_time=local["dnd_begin_time"], dnd_end_time=local["dnd_end_time"]),
+    )
+    return await timezone_snapshot(api, device_id)
+
+
 async def change_with_readback(api: NottyApi, device_id: str, fields: JsonObject) -> JsonObject:
-    """Make at most one write; report setting drift without retries or restoration.
+    """Change the timezone once and optionally preserve DND, without replay or rollback.
 
     Returns:
         Before/after readback. Matching fields do not prove unchanged firing times.
     """
     identifier = timezone_change_fields(fields)
+    zone = str(fields["iana_time_zone"])
+    preserve = fields.get("preserve_dnd_local_times") is True
     before = await timezone_snapshot(api, device_id)
-    if before["reported_windows"] == identifier:
+    if preserve:
+        _local_dnd(before)
+    if before["reported_windows"] == identifier and before["reported_iana"] == zone:
         return {"status": "unchanged", "before": before, "after": before}
-    await api.change_time_zone(device_id, identifier)
+    await api.change_time_zone(device_id, identifier, iana_time_zone=zone)
     try:
         after = await timezone_snapshot(api, device_id)
     except NottyApiError:
         return {"status": "write_acknowledged_readback_failed", "before": before}
+    if after["reported_iana"] != zone or after["reported_windows"] != identifier:
+        return {"status": "timezone_readback_mismatch", "before": before, "after": after}
+    preservation: str = "not_requested"
+    if preserve:
+        try:
+            after = await _preserve_dnd(api, device_id, before, after)
+            preservation = "local_clocks_match" if _local_dnd(before) == _local_dnd(after) else "local_clock_mismatch"
+        except NottyApiError:
+            return {"status": "timezone_changed_dnd_preservation_failed", "before": before, "after": after}
     changed: list[JsonValue] = [key for key in ("settings", "plans") if before[key] != after[key]]
     return {
         "status": "write_acknowledged_verify_in_app",
         "requested_catalog_id": identifier,
+        "requested_iana_time_zone": zone,
+        "dnd_preservation": preservation,
         "before": before,
         "after": after,
         "changed_schedule_fields": changed,
@@ -137,6 +200,8 @@ def register_timezone_service(
         vol.Required("user_device_id"): validator,
         vol.Required("operation"): vol.In(("list", "change")),
         vol.Optional("catalog_id"): str,
+        vol.Optional("iana_time_zone"): str,
+        vol.Optional("preserve_dnd_local_times"): bool,
         vol.Optional("confirm_schedule_change"): bool,
     }
     hass.services.async_register(

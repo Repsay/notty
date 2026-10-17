@@ -162,7 +162,7 @@ def profile_payload(pet_id: str, current: JsonObject, changes: JsonObject) -> Js
         msg = "Pet editing requires the current positive profile weight"
         raise NottyApiError(msg)
     unit = current.get("weight_unit")
-    if type(unit) is not int or unit not in {0, 1}:
+    if type(unit) is not int or unit not in {1, 2}:
         msg = "Pet editing requires a known current weight unit"
         raise NottyApiError(msg)
     devices = object_rows(current.get("pet_devices"))

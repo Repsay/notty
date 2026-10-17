@@ -354,14 +354,14 @@ def timezone_catalog(value: JsonValue) -> list[JsonObject]:
     return rows
 
 
-def timezone_payload(device_id: str, catalog_id: str, rows: list[JsonObject]) -> JsonObject:
-    """Use the selected Windows catalog ID in the APK's misnamed IANA field.
+def timezone_payload(device_id: str, catalog_id: str, rows: list[JsonObject], *, iana_time_zone: str) -> JsonObject:
+    """Send a real IANA zone; live testing disproved the APK's Windows-name payload.
 
     Returns:
         Only the two fields serialized by the app.
 
     Raises:
-        NottyApiError: If the physical ID or catalog membership is invalid.
+        NottyApiError: If the physical ID, catalog membership or IANA name is invalid.
     """
     if not device_id.isascii() or not device_id.isdecimal() or int(device_id) <= 0:
         msg = "Timezone changes require a positive numeric physical device ID"
@@ -369,7 +369,26 @@ def timezone_payload(device_id: str, catalog_id: str, rows: list[JsonObject]) ->
     if not any(row["id"] == catalog_id for row in rows):
         msg = "Choose an exact ID from the current NOTTY timezone catalog"
         raise NottyApiError(msg)
-    return {"user_device_id": int(device_id), "time_zone_iana": catalog_id}
+    return {"user_device_id": int(device_id), "time_zone_iana": validated_iana_zone(iana_time_zone)}
+
+
+def validated_iana_zone(value: JsonValue) -> str:
+    """Validate an explicit IANA identifier without mapping Windows catalog names.
+
+    Returns:
+        The unchanged valid IANA name.
+
+    Raises:
+        NottyApiError: If the supplied value is not a known IANA name.
+    """
+    msg = "Timezone changes require a valid IANA name, not a Windows catalog ID"
+    if not isinstance(value, str):
+        raise NottyApiError(msg)
+    try:
+        ZoneInfo(value)
+    except KeyError, ValueError, TypeError:
+        raise NottyApiError(msg) from None
+    return value
 
 
 def reminder_payload(action: str, data: JsonObject) -> JsonObject:
@@ -716,7 +735,7 @@ class NottyTimezoneApi(NottyTransport):
         """
         return timezone_catalog(await self.request("GET", "/entity/get_time_zones"))
 
-    async def change_time_zone(self, device_id: str, catalog_id: str) -> JsonValue:
+    async def change_time_zone(self, device_id: str, catalog_id: str, *, iana_time_zone: str) -> JsonValue:
         """Validate fresh catalog membership before one explicit timezone write.
 
         Returns:
@@ -724,7 +743,9 @@ class NottyTimezoneApi(NottyTransport):
         """
         rows = await self.time_zones()
         return await self.request(
-            "POST", "/device/change_time_zone", data=timezone_payload(device_id, catalog_id, rows)
+            "POST",
+            "/device/change_time_zone",
+            data=timezone_payload(device_id, catalog_id, rows, iana_time_zone=iana_time_zone),
         )
 
 
