@@ -56,7 +56,7 @@ MAX_DEPTH = 16
 CAPTURE_VERSION = 1
 FIELD_DATA = "data"
 SOURCE_PATTERN = re.compile(
-    r"(?:pet\[[1-9][0-9]*\]\.profile|box\[[1-9][0-9]*\]\.(?:info|pet_list|associations|pet\[[1-9][0-9]*\]\.(?:statistics|detail)))"
+    r"(?:pet\[[1-9][0-9]*\]\.(?:profile|wc_statistics_type[1-4])|box\[[1-9][0-9]*\]\.(?:info|pet_list|associations|pet\[[1-9][0-9]*\]\.(?:statistics(?:_type[1-4])?|detail)))"
 )
 
 
@@ -202,7 +202,7 @@ def capture_sources(capture: JsonObject) -> list[JsonObject]:
             not isinstance(label, str)
             or SOURCE_PATTERN.fullmatch(label) is None
             or not isinstance(kind, str)
-            or kind not in {PROFILE, "info", "pet_list", "associations", "statistics", "detail"}
+            or kind not in {PROFILE, "info", "pet_list", "associations", "statistics", "detail", "wc_statistics"}
         ):
             msg = "Unknown weight-probe source label or kind"
             raise ValueError(msg)

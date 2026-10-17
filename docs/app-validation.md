@@ -275,3 +275,7 @@ The live timezone contract was corrected after this guide was originally written
 Changes now require `iana_time_zone` in addition to the catalog ID. See
 [remaining-validation.md](remaining-validation.md) before changing timezones; it
 also documents DND preservation and the separate DST observation script.
+
+
+For the expanded four-range weight probe and independent-visit evidence boundaries,
+see [weight-source-investigation.md](weight-source-investigation.md).

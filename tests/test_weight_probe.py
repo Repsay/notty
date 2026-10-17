@@ -19,9 +19,11 @@ GET = "GET"
 FIELD_VALUE = "reported_value"
 SERIES_COUNT = 2
 EXPECTED_DETAIL_PATH = "/device/litter_box/pet_data_detail/123?pet_id=7"
-FORBIDDEN_PATH_PARTS = ("pet_id=8", "pet_id=99", "/456")
+FORBIDDEN_PATH_PARTS = ("pet_id=99", "/456")
 PRIVATE_MARKER = "secret-token"
 ANALYSIS_TIME = "analysed_at"
+UNBOUND_PET_QUERY = "pet_id=8"
+PRIVATE_JOIN_KEY = "private-join-key"
 
 
 def capture() -> JsonObject:
@@ -110,6 +112,12 @@ async def test_collector_calls_get_only_and_scopes_history_to_bound_account_pets
     paths = [call.args[1] for call in api.request.await_args_list]
     assert all(call.args[0] == GET for call in api.request.await_args_list)
     assert EXPECTED_DETAIL_PATH in paths
+    assert not any(path.startswith("/device/") and UNBOUND_PET_QUERY in path for path in paths)
+    assert all(f"/pet/pet_wc_data_statistics?pet_id=7&type={selection}" in paths for selection in (1, 2, 3, 4))
+    assert all(
+        f"/device/litter_box/pet_data_statistics/123?pet_id=7&type={selection}" in paths for selection in (1, 2, 3, 4)
+    )
+    assert all(source["requested_at"] <= source["received_at"] for source in result["sources"])
     assert not any(part in path for path in paths for part in FORBIDDEN_PATH_PARTS)
 
 
@@ -174,3 +182,41 @@ async def test_profile_for_a_different_pet_never_becomes_weight_evidence() -> No
     await collector.read("pet[1].profile", "profile", "pet:7:profile", "/pet/info/7", pet_id="7")
     assert not collector.sources
     assert collector.errors
+
+
+@pytest.mark.parametrize(
+    "label", ["pet[1].wc_statistics_type1", "pet[1].wc_statistics_type4", "box[1].pet[1].statistics_type4"]
+)
+def test_extended_statistics_sources_are_safe_and_detect_weight_candidates(label: str) -> None:
+    """Report candidates from all APK-selected ranges without trusting them as measurements."""
+    kind = "wc_statistics" if label.startswith("pet[") else "statistics"
+    value = {
+        "schema_version": 1,
+        "errors": [],
+        "sources": [
+            {
+                "label": label,
+                "kind": kind,
+                "identity": "private-join-key",
+                "data": {"weight": [4.1], "date": "2026-01-01"},
+            }
+        ],
+    }
+    result = weight_report.report(value)
+    expected = "unverified_measurement_candidate"
+    assert result["sources"][0]["fields"][0]["role"] == expected
+    assert PRIVATE_JOIN_KEY not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "label", ["pet[1].wc_statistics_type0", "pet[1].wc_statistics_type5", "box[1].pet[1].statistics_type99"]
+)
+def test_unknown_statistics_ranges_are_not_echoed(label: str) -> None:
+    """Untrusted capture labels cannot add unsupported range identifiers to output."""
+    value = {
+        "schema_version": 1,
+        "errors": [],
+        "sources": [{"label": label, "kind": "statistics", "identity": "join", "data": {}}],
+    }
+    with pytest.raises(ValueError, match="Unknown"):
+        weight_report.report(value)

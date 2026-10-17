@@ -34,6 +34,7 @@ LITTER_WORD = "litter"
 SAND_WORD = "sand"
 LIST_FIELDS = ("list", "data", "rows", "items")
 LITTER_PRODUCT_ID = 2
+STATISTICS_TYPES = (1, 2, 3, 4)
 
 
 def rows(value: JsonValue) -> list[JsonObject]:
@@ -117,6 +118,7 @@ class WeightCollector:
         Raises:
             NottyAuthError: If the saved session expires; collection stops without retry.
         """
+        requested_at = datetime.now(UTC).isoformat()
         try:
             data = await self.api.request("GET", path)
         except probe_datapoints.load_api.NottyAuthError:
@@ -127,7 +129,14 @@ class WeightCollector:
         if pet_id is not None and not profile_identity_matches(data, pet_id):
             self.errors.append({"source": label, "error": "profile_identity_mismatch_or_missing"})
             return None
-        self.sources.append({"label": label, "kind": kind, "identity": identity, "data": data})
+        self.sources.append({
+            "label": label,
+            "kind": kind,
+            "identity": identity,
+            "data": data,
+            "requested_at": requested_at,
+            "received_at": datetime.now(UTC).isoformat(),
+        })
         return data
 
     async def box(self, device_id: str, label: str, pets: dict[str, str]) -> None:
@@ -167,6 +176,13 @@ class WeightCollector:
                     f"{identity}:pet:{pet_id}:{kind}",
                     f"/device/litter_box/{endpoint}/{device_id}?pet_id={pet_id}",
                 )
+            for selection in STATISTICS_TYPES:
+                await self.read(
+                    f"{label}.{pet_label}.statistics_type{selection}",
+                    "statistics",
+                    f"{identity}:pet:{pet_id}:statistics:type:{selection}",
+                    f"/device/litter_box/pet_data_statistics/{device_id}?pet_id={pet_id}&type={selection}",
+                )
 
     async def collect(self, device_ids: list[str], pet_ids: list[str]) -> JsonObject:
         """Resolve selected targets from current account discovery before reading data.
@@ -177,6 +193,7 @@ class WeightCollector:
         Raises:
             ValueError: If a requested target is outside current account discovery.
         """
+        started_at = datetime.now(UTC).isoformat()
         pets = rows(await self.api.request("GET", "/pet/list"))
         account_pets = {numeric_id(pet.get("pet_id")): pet for pet in pets}
         selected_pets = {numeric_id(value) for value in pet_ids} if pet_ids else set(account_pets)
@@ -194,12 +211,20 @@ class WeightCollector:
             await self.read(
                 f"{label}.profile", "profile", f"pet:{pet_id}:profile", f"/pet/info/{pet_id}", pet_id=pet_id
             )
+            for selection in STATISTICS_TYPES:
+                await self.read(
+                    f"{label}.wc_statistics_type{selection}",
+                    "wc_statistics",
+                    f"pet:{pet_id}:wc_statistics:type:{selection}",
+                    f"/pet/pet_wc_data_statistics?pet_id={pet_id}&type={selection}",
+                )
         for index, device_id in enumerate(sorted(selected_boxes, key=int), 1):
             await self.box(device_id, f"box[{index}]", labels)
         if not selected_boxes or not selected_pets:
             self.errors.append({"source": "discovery", "error": "no_litter_boxes_or_pets"})
         return {
             "schema_version": 1,
+            "capture_started_at": started_at,
             "captured_at": datetime.now(UTC).isoformat(),
             "sources": self.sources,
             "errors": self.errors,
